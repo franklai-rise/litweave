@@ -39,7 +39,7 @@ jobs:
       - name: Hash release assets
         shell: pwsh
         run: |
-          Get-ChildItem artifacts -File | ForEach-Object {
+          Get-ChildItem artifacts -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' } | ForEach-Object {
             "$(Get-FileHash $_.FullName -Algorithm SHA256 | Select-Object -ExpandProperty Hash)  $($_.Name)"
           } | Set-Content artifacts\SHA256SUMS.txt -Encoding utf8NoBOM
       - name: Create GitHub release
