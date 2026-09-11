@@ -27,6 +27,8 @@ jobs:
           npm ci
           npm test
           npm run build
+          npx playwright install chromium
+          npm run test:e2e
       - name: .NET build and tests
         run: |
           dotnet build LitWeave.sln -c Release
