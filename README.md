@@ -18,6 +18,9 @@ labelling and deleting nodes in LitWeave never changes Zotero.
 The first public milestone is `v0.1.0` for Windows 10/11 x64 and Zotero 9.x
 personal libraries. The release line is deliberately conservative:
 
+Download the [v0.1.0 GitHub Release](https://github.com/franklai-rise/litweave/releases/tag/v0.1.0)
+for the installer, portable ZIP and SHA-256 manifest.
+
 - manual `Refresh Zotero` reads the local API and presents new records in a
   `Refresh Review` tray;
 - nested Collection frames and paper cards are laid out on a persistent canvas;
