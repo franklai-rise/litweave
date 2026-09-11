@@ -25,7 +25,7 @@ personal libraries. The release line is deliberately conservative:
   to LitWeave;
 - the context menu can locate a Zotero item or open a PDF with the attachment
   key (`zotero://open-pdf/library/items/{attachmentKey}`);
-- JSON and SVG canvas export are available; PDF files and Zotero's database are
+- JSON, SVG and PNG canvas export are available; PDF files and Zotero's database are
   never copied into the repository or the LitWeave database.
 
 There is no Zotero plugin in v0.1. The reserved future name is **LitWeave
