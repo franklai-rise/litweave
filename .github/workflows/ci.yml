@@ -35,5 +35,7 @@ jobs:
         shell: pwsh
         run: |
           $patterns = 'api[_-]?key\s*[:=]|BEGIN (RSA|OPENSSH|PRIVATE)|AppData\\Roaming\\Zotero|[A-Za-z]:\\Users\\[^\\s]+\\Zotero'
-          $hits = rg -n -i --hidden --glob '!web/node_modules/**' --glob '!**/bin/**' --glob '!**/obj/**' $patterns .
-          if ($LASTEXITCODE -eq 0) { Write-Error "Potential secret or personal Zotero data found:`n$hits" }
+          $files = Get-ChildItem -Path . -Recurse -File -Force |
+            Where-Object { $_.FullName -notmatch '\\.git\\|\\node_modules\\|\\bin\\|\\obj\\' }
+          $hits = $files | Select-String -Pattern $patterns -CaseSensitive:$false
+          if ($hits) { Write-Error "Potential secret or personal Zotero data found:`n$($hits -join "`n")" }
