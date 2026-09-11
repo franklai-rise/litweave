@@ -14,6 +14,9 @@ public partial class App : Application
         Repository = new LitWeaveRepository();
         ZoteroClient = new ZoteroClient();
         base.OnStartup(e);
+        var window = new MainWindow();
+        MainWindow = window;
+        window.Show();
     }
 
     protected override void OnExit(ExitEventArgs e)
