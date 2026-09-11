@@ -48,4 +48,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "${{ github.ref_name }}"
-          gh release create $tag artifacts\* --title "LitWeave $tag" --notes-file RELEASE_NOTES.md
+          $assets = Get-ChildItem artifacts -File | Select-Object -ExpandProperty FullName
+          gh release create $tag @assets --title "LitWeave $tag" --notes-file RELEASE_NOTES.md
