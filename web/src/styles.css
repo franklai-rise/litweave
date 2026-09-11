@@ -151,10 +151,12 @@ button { color: inherit; cursor: pointer; }
 .modal label { display: block; margin-top: 11px; color: #8e9fbe; font-size: 10px; }
 .modal input, .modal textarea, .modal select { display: block; width: 100%; margin-top: 6px; padding: 8px 9px; border: 1px solid #344867; border-radius: 7px; outline: none; color: #edf2ff; background: #101a2d; font-size: 12px; resize: vertical; }
 .modal input:focus, .modal textarea:focus, .modal select:focus { border-color: #7c9cff; box-shadow: 0 0 0 2px rgba(124,156,255,.13); }
-.modal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: end; }
+.modal-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; align-items: end; }
 .modal-grid .toggle { margin: 18px 0 9px; color: #a7b5d0; }
+.modal-grid .color-input { height: 34px; padding: 3px; cursor: pointer; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 .modal-actions .refresh-button { width: auto; }
+.danger-button { margin-right: auto; padding: 8px 10px; border: 1px solid #744355; border-radius: 8px; color: #f2abb8; background: rgba(89, 36, 51, .55); font-size: 11px; }
 .spin { animation: spin .85s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
