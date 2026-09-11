@@ -1,0 +1,45 @@
+# .NET
+bin/
+obj/
+TestResults/
+*.user
+*.suo
+
+# Frontend
+web/node_modules/
+web/dist/
+web/playwright-report/
+web/test-results/
+web/coverage/
+
+# Local app data and user content
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.log
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.zip
+*.exe
+local/
+artifacts/
+snapshots/
+
+# IDE / OS
+.vs/
+.idea/
+.vscode/
+*.userprefs
+Thumbs.db
+Desktop.ini
+
+# Secrets
+.env
+.env.*
+!.env.example
+secrets.json
+credentials.json
