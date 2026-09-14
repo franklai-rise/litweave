@@ -11,6 +11,28 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        var dataRootIndex = Array.FindIndex(e.Args, argument => string.Equals(argument, "--data-root", StringComparison.OrdinalIgnoreCase));
+        if (dataRootIndex >= 0)
+        {
+            if (dataRootIndex == e.Args.Length - 1)
+            {
+                MessageBox.Show("The --data-root option needs a folder path.", "LitWeave startup", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Shutdown();
+                return;
+            }
+
+            try
+            {
+                AppPaths.ConfigureRootDirectory(e.Args[dataRootIndex + 1]);
+            }
+            catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                MessageBox.Show($"The requested LitWeave data folder is invalid.\n\n{exception.Message}", "LitWeave startup", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Shutdown();
+                return;
+            }
+        }
+
         var integrityError = LitWeaveRepository.GetIntegrityError(AppPaths.DatabasePath);
         if (!string.IsNullOrWhiteSpace(integrityError))
         {

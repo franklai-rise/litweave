@@ -2,13 +2,21 @@ namespace LitWeave.Services;
 
 public static class AppPaths
 {
+    private static string? configuredRootDirectory;
+
+    public static void ConfigureRootDirectory(string rootDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(rootDirectory);
+        configuredRootDirectory = Path.GetFullPath(rootDirectory);
+    }
+
     public static string RootDirectory
     {
         get
         {
-            // Used only for a separately launched recovery copy. Normal installs
-            // keep using %LOCALAPPDATA%\\LitWeave and never move user data.
-            var explicitRoot = Environment.GetEnvironmentVariable("LITWEAVE_DATA_ROOT");
+            // A command-line data root is used by a direct recovery shortcut.
+            // Normal installations still use %LOCALAPPDATA%\\LitWeave.
+            var explicitRoot = configuredRootDirectory ?? Environment.GetEnvironmentVariable("LITWEAVE_DATA_ROOT");
             return string.IsNullOrWhiteSpace(explicitRoot)
                 ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LitWeave")
                 : Path.GetFullPath(explicitRoot);

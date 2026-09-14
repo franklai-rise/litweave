@@ -55,6 +55,22 @@ test('creates an edge by visible relation action without a hidden handle depende
   await expect(page.locator('.react-flow__edge')).toHaveCount(1);
 });
 
+test('opens an edge context menu and removes only the selected relation', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: /刷新 Zotero/ }).click();
+  const source = await addPaper(page, 'Physics-informed structural analysis');
+  const target = await addPaper(page, 'A review of explainable mechanics');
+  await source.locator('.node-relation-button').click();
+  await target.click();
+  const edge = page.locator('.react-flow__edge');
+  await expect(edge).toHaveCount(1);
+  await edge.click({ button: 'right', position: { x: 6, y: 6 } });
+  await expect(page.getByRole('button', { name: '删除关联' })).toBeVisible();
+  await page.getByRole('button', { name: '删除关联' }).click();
+  await expect(page.locator('.react-flow__edge')).toHaveCount(0);
+  await expect(page.getByText('关联已从此白板移除。可使用撤销恢复。')).toBeVisible();
+});
+
 test('creates an edge by dragging a connection point', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: /刷新 Zotero/ }).click();
