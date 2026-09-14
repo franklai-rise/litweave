@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { getAppState, loadCanvas, refreshZotero } from './bridge';
+import { createBoard, getAppState, listBoards, loadCanvas, refreshZotero, saveBoard } from './bridge';
 
 describe('native bridge fallback', () => {
   beforeEach(() => {
@@ -21,5 +21,12 @@ describe('native bridge fallback', () => {
   it('starts a new canvas when no saved document exists', async () => {
     const loaded = await loadCanvas('root');
     expect(loaded.document).toBeNull();
+  });
+
+  it('keeps independently named boards in the fallback store', async () => {
+    const created = await createBoard('Mechanism map');
+    await saveBoard({ ...created.document, name: 'Mechanism map' });
+    const listed = await listBoards();
+    expect(listed.boards.some(board => board.id === created.document.id && board.name === 'Mechanism map')).toBe(true);
   });
 });

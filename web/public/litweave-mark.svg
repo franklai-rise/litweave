@@ -1,0 +1,12 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">LitWeave</title>
+  <desc id="desc">Two literature paths woven into a connected map</desc>
+  <rect x="2" y="2" width="60" height="60" rx="18" fill="#F3F5FF"/>
+  <path d="M18 19C25 19 25 32 32 32S39 45 46 45" stroke="#33416C" stroke-width="3.4" stroke-linecap="round"/>
+  <path d="M46 19C39 19 39 32 32 32S25 45 18 45" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round"/>
+  <path d="M46 19C39 19 39 32 32 32S25 45 18 45" stroke="#596DD8" stroke-width="3.4" stroke-linecap="round"/>
+  <circle cx="18" cy="19" r="5.5" fill="#FFFFFF" stroke="#33416C" stroke-width="3"/>
+  <circle cx="46" cy="19" r="5.5" fill="#FFFFFF" stroke="#596DD8" stroke-width="3"/>
+  <circle cx="18" cy="45" r="5.5" fill="#FFFFFF" stroke="#596DD8" stroke-width="3"/>
+  <circle cx="46" cy="45" r="5.5" fill="#FFFFFF" stroke="#33416C" stroke-width="3"/>
+</svg>

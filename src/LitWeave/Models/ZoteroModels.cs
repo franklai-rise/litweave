@@ -54,6 +54,7 @@ public sealed class ZoteroItem
     public string? Url { get; set; }
     public string? AbstractNote { get; set; }
     public string? CorrespondingAuthor { get; set; }
+    public string? FirstAffiliation { get; set; }
     public List<ZoteroCreator> Creators { get; set; } = [];
     public List<string> CollectionKeys { get; set; } = [];
     public List<string> Tags { get; set; } = [];
@@ -118,7 +119,7 @@ public static class SnapshotHasher
         {
             sb.Append("i|").Append(item.Key).Append('|').Append(item.ItemType).Append('|')
                 .Append(item.Title).Append('|').Append(item.Date).Append('|').Append(item.PublicationTitle)
-                .Append('|').Append(item.Doi).Append('|').Append(item.CorrespondingAuthor).Append('|')
+                .Append('|').Append(item.Doi).Append('|').Append(item.CorrespondingAuthor).Append('|').Append(item.FirstAffiliation).Append('|')
                 .Append(string.Join(',', item.CollectionKeys.Order(StringComparer.Ordinal))).Append('|')
                 .Append(string.Join(',', item.Tags.Order(StringComparer.Ordinal))).Append('|');
             foreach (var creator in item.Creators)

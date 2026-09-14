@@ -2,6 +2,6 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <Application.Resources>
-    <SolidColorBrush x:Key="WindowBackground" Color="#0C101A" />
+    <SolidColorBrush x:Key="WindowBackground" Color="#F8F9FC" />
   </Application.Resources>
 </Application>

@@ -1,5 +1,10 @@
 #define MyAppName "LitWeave"
-#define MyAppVersion "0.1.0"
+#ifndef MyAppVersion
+#define MyAppVersion "0.2.1-beta.1"
+#endif
+#ifndef MyBuildRoot
+#define MyBuildRoot "..\artifacts\releases\v0.2.1-beta.1"
+#endif
 #define MyAppPublisher "Frank Lai"
 #define MyAppExeName "LitWeave.exe"
 
@@ -10,7 +15,7 @@ AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\LitWeave
 DefaultGroupName=LitWeave
-OutputDir=..\artifacts
+OutputDir={#MyBuildRoot}
 OutputBaseFilename=LitWeave-{#MyAppVersion}-win-x64-setup
 Compression=lzma2
 SolidCompression=yes
@@ -20,7 +25,7 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 ; The first release is unsigned. The README and release notes call out SmartScreen.
 
 [Files]
-Source: "..\artifacts\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#MyBuildRoot}\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\LitWeave"; Filename: "{app}\{#MyAppExeName}"

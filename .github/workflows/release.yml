@@ -29,30 +29,35 @@ jobs:
       - name: Build self-contained portable app
         shell: pwsh
         run: |
-          ./packaging/build-release.ps1
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          ./packaging/build-release.ps1 -Version $version -OutputDirectory "artifacts/releases/${{ github.ref_name }}"
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup --no-progress -y
       - name: Build installer
         shell: pwsh
-        run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" packaging\LitWeave.iss'
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$version" "/DMyBuildRoot=..\artifacts\releases\${{ github.ref_name }}" packaging\LitWeave.iss
       - name: Hash release assets
         shell: pwsh
         run: |
-          Get-ChildItem artifacts -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' } | ForEach-Object {
+          $releaseDirectory = "artifacts/releases/${{ github.ref_name }}"
+          Get-ChildItem $releaseDirectory -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' } | ForEach-Object {
             "$(Get-FileHash $_.FullName -Algorithm SHA256 | Select-Object -ExpandProperty Hash)  $($_.Name)"
-          } | Set-Content artifacts\SHA256SUMS.txt -Encoding utf8NoBOM
+          } | Set-Content (Join-Path $releaseDirectory 'SHA256SUMS.txt') -Encoding utf8NoBOM
       - name: Create or update GitHub release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "${{ github.ref_name }}"
-          $assets = Get-ChildItem artifacts -File | Select-Object -ExpandProperty FullName
+          $assets = Get-ChildItem "artifacts/releases/$tag" -File | Select-Object -ExpandProperty FullName
+          $preRelease = if ($tag -match '-') { '--prerelease' } else { '' }
           gh release view $tag --repo "${{ github.repository }}" *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag @assets --repo "${{ github.repository }}" --clobber
-            gh release edit $tag --repo "${{ github.repository }}" --title "LitWeave $tag" --notes-file RELEASE_NOTES.md
+            gh release edit $tag --repo "${{ github.repository }}" --title "LitWeave $tag" --notes-file RELEASE_NOTES.md $preRelease
           } else {
-            gh release create $tag @assets --repo "${{ github.repository }}" --title "LitWeave $tag" --notes-file RELEASE_NOTES.md
+            gh release create $tag @assets --repo "${{ github.repository }}" --title "LitWeave $tag" --notes-file RELEASE_NOTES.md $preRelease
           }

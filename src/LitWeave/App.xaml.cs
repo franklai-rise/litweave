@@ -11,6 +11,17 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        var integrityError = LitWeaveRepository.GetIntegrityError(AppPaths.DatabasePath);
+        if (!string.IsNullOrWhiteSpace(integrityError))
+        {
+            MessageBox.Show(
+                "LitWeave detected a problem in its local whiteboard database and will not write to it. " +
+                "Your Zotero library has not been changed. Copy %LOCALAPPDATA%\\LitWeave to a safe folder and recover from a backup or .litweave source file.\n\n" +
+                $"SQLite check: {integrityError}",
+                "LitWeave data protection", MessageBoxButton.OK, MessageBoxImage.Warning);
+            Shutdown();
+            return;
+        }
         Repository = new LitWeaveRepository();
         ZoteroClient = new ZoteroClient();
         base.OnStartup(e);

@@ -1,344 +1,287 @@
 import {
-  addEdge,
-  applyEdgeChanges,
-  applyNodeChanges,
-  Background,
-  Controls,
-  Handle,
-  MarkerType,
-  MiniMap,
-  Position,
-  ReactFlow,
-  ReactFlowProvider,
-  useReactFlow,
-  type Connection,
-  type EdgeChange,
-  type NodeChange,
-  type NodeProps,
-  type NodeTypes,
-  type EdgeTypes,
-  type Node,
-  type Edge,
+  addEdge, applyEdgeChanges, applyNodeChanges, Background, Controls, Handle, MarkerType, MiniMap, reconnectEdge,
+  ConnectionMode, NodeResizer, Position, ReactFlow, ReactFlowProvider, useReactFlow,
+  type Connection, type EdgeChange, type NodeChange, type NodeProps, type NodeTypes,
 } from '@xyflow/react';
-import { BookOpen, ChevronDown, ChevronRight, FolderOpen, GitBranch, Languages, Maximize2, MoreHorizontal, Plus, Redo2, RefreshCw, Search, Settings2, StickyNote, Trash2, Undo2, Upload, X, Zap } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import {
+  BookOpen, Check, ChevronDown, ChevronRight, CircleAlert, Copy, FileImage, FolderOpen, GitBranch,
+  GripVertical, ImagePlus, Info, Maximize2, MoreHorizontal, Palette, Pencil, Plus, Redo2, RefreshCw,
+  Search, Settings2, StickyNote, Trash2, Undo2, Wifi, WifiOff, X,
+} from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import '@xyflow/react/dist/style.css';
-import { getAppState, invoke, loadCanvas, refreshZotero, saveCanvas, type AppState } from './bridge';
-import type {
-  CanvasDocument, CanvasEdgeRecord, CanvasNodeRecord, LitFlowEdge, LitFlowNode, PaperNodeData,
-  RefreshDiff, ZoteroCollection, ZoteroItem, ZoteroSnapshot, ZoteroStatus,
-} from './types';
+import { checkZotero, createBoard, getAppState, getBoardSession, getImageData, importBoardPackage, invoke, listBoards, loadBoard, refreshZotero, saveBoard, saveBoardSession, saveImage, getWorkspaceDirectory, setWorkspaceDirectory } from './bridge';
+import type { BoardSummary, CanvasDocument, CanvasEdgeRecord, CanvasNodeRecord, LitFlowEdge, LitFlowNode, MorandiAppearance, NodeData, ZoteroCollection, ZoteroItem, ZoteroSnapshot, ZoteroStatus } from './types';
 import './styles.css';
 
-type Language = 'zh-CN' | 'en-US';
-type MenuState = { x: number; y: number; nodeId: string; itemKey?: string } | null;
-type DialogState =
-  | { kind: 'edge'; edgeId?: string; source: string; target: string; label: string; note: string; directed: boolean; color: string; lineStyle: 'solid' | 'dashed' | 'dotted' }
-  | { kind: 'text'; text: string }
-  | null;
+declare global { interface Window { litweavePrepareToClose?: () => void; } }
 
-const labels: Record<Language, Record<string, string>> = {
-  'zh-CN': {
-    search: '搜索题目、作者、DOI…', collections: 'Zotero 文件夹', library: '全部文库', recursive: '递归显示子文件夹', direct: '仅直接文献', refresh: '刷新 Zotero', refreshing: '正在刷新…', review: '刷新审核', addAll: '全部加入画布', add: '加入', noNew: '没有待审核的新文献', offline: 'Zotero 未连接', ready: '已连接', lastRefresh: '上次刷新', emptyTitle: '选择一个文件夹开始编织', emptyBody: '左侧选择 Collection，文献卡片会在右侧画布中展开。所有连线和文字只保存在 LitWeave。', connect: '拖动连接点建立关联', note: '新建文字', export: '导出', openItem: '在 Zotero 中定位条目', openPdf: '在 Zotero 中打开 PDF', noPdf: '没有 PDF 附件', remove: '从画布移除', addRelation: 'Add Relation', relationHint: '请选择另一张文献卡片', alias: 'Alias', ghost: 'Ghost', outScope: 'Out of Zotero Scope', papers: '篇文献', collectionsCount: '个文件夹', saved: '已保存', addEdge: '建立关联', edgeLabel: '关系标签', edgeNote: '详细备注（可选）', edgeColor: '线条颜色', directed: '有向边', save: '保存', cancel: '取消', close: '关闭', language: '语言', demo: '脱敏演示数据', allItems: '文献', online: '本地 API 正常', baseline: '已建立刷新基线', newItems: '新增', updatedItems: '更新', removedItems: '移除', select: '选择', exportJson: '导出 JSON', exportSvg: '导出 SVG', aiOff: 'AI 建议（v0.1 未启用）', noSelection: '尚未选择文件夹', libraryScope: '全部文库范围', addText: '添加文字卡片', deleteEdge: '删除关联', dotted: '点线', dashed: '虚线', solid: '实线', directHint: '仅显示当前文件夹直接文献', recursiveHint: '包含所有子文件夹文献',
-  },
-  'en-US': {
-    search: 'Search title, author, DOI…', collections: 'Zotero Collections', library: 'All library', recursive: 'Include nested Collections', direct: 'Direct items only', refresh: 'Refresh Zotero', refreshing: 'Refreshing…', review: 'Refresh Review', addAll: 'Add all to canvas', add: 'Add', noNew: 'No new items to review', offline: 'Zotero offline', ready: 'Connected', lastRefresh: 'Last refresh', emptyTitle: 'Choose a Collection to begin weaving', emptyBody: 'Select a Collection on the left. Cards will fan out on the canvas; relationships and notes stay in LitWeave.', connect: 'Drag a handle to create a relationship', note: 'New text', export: 'Export', openItem: 'Show item in Zotero', openPdf: 'Open PDF in Zotero', noPdf: 'No PDF attachment', remove: 'Remove from canvas', addRelation: 'Add Relation', relationHint: 'Select another paper card', alias: 'Alias', ghost: 'Ghost', outScope: 'Out of Zotero Scope', papers: 'papers', collectionsCount: 'collections', saved: 'Saved', addEdge: 'Create relationship', edgeLabel: 'Relationship label', edgeNote: 'Detailed note (optional)', edgeColor: 'Line color', directed: 'Directed edge', save: 'Save', cancel: 'Cancel', close: 'Close', language: 'Language', demo: 'Anonymised demo data', allItems: 'Items', online: 'Local API ready', baseline: 'Refresh baseline created', newItems: 'New', updatedItems: 'Updated', removedItems: 'Removed', select: 'Select', exportJson: 'Export JSON', exportSvg: 'Export SVG', aiOff: 'AI suggestions (disabled in v0.1)', noSelection: 'No Collection selected', libraryScope: 'All library scope', addText: 'Add text card', deleteEdge: 'Delete relationship', dotted: 'Dotted', dashed: 'Dashed', solid: 'Solid', directHint: 'Only direct items in this Collection', recursiveHint: 'Include items in nested Collections',
-  },
-};
+const DEFAULT_APPEARANCE: MorandiAppearance = { borderColor: '#7182A8', borderWidth: 1.5, fillColor: '#FFFFFF' };
+const MORANDI = [
+  { name: '雾蓝', value: '#7182A8', fill: '#F1F4F9' }, { name: '灰紫', value: '#9388A7', fill: '#F5F2F7' },
+  { name: '豆沙', value: '#B78588', fill: '#FBF3F3' }, { name: '陶土', value: '#AE806A', fill: '#FBF3EE' },
+  { name: '米杏', value: '#B79D73', fill: '#FBF7EF' },
+];
+type Point = { x: number; y: number };
+type Notice = { kind: 'success' | 'info' | 'error'; message: string } | null;
+type NoteDialog = { point: Point; nodeId?: string; text: string; kind: 'text' | 'group' };
+type EdgeDialog = { source: string; target: string; sourceHandle?: string | null; targetHandle?: string | null; edgeId?: string; label: string; note: string; directed: boolean; color: string; width: number; lineStyle: 'solid' | 'dashed' | 'dotted' };
+type ContextState = { x: number; y: number; nodeId?: string; point?: Point } | null;
+type History = { past: Array<{ nodes: LitFlowNode[]; edges: LitFlowEdge[] }>; future: Array<{ nodes: LitFlowNode[]; edges: LitFlowEdge[] }>; };
 
-function useText(language: Language) { return (key: string) => labels[language][key] ?? key; }
-
-function getName(collection: ZoteroCollection | undefined, fallback: string) { return collection?.name || fallback; }
-
-function scopeKeys(snapshot: ZoteroSnapshot, root: string, recursive: boolean): Set<string> {
-  if (!root) return new Set(snapshot.collections.filter(c => recursive || !c.parentKey).map(c => c.key));
-  const keys = new Set([root]);
-  if (!recursive) return keys;
+function uid(prefix: string) { return `${prefix}:${crypto.randomUUID()}`; }
+function imageUrl(imageId?: string | null) { return imageId ? `https://images.litweave/${imageId}` : ''; }
+function itemName(item: ZoteroItem | null | undefined) { return item?.firstAuthor || item?.creators?.[0]?.displayName || item?.creators?.[0]?.name || '—'; }
+function descendantKeys(root: string, collections: ZoteroCollection[]) {
+  const keys = new Set<string>(root ? [root] : []); if (!root) return keys;
   let changed = true;
-  while (changed) {
-    changed = false;
-    for (const collection of snapshot.collections) {
-      if (collection.parentKey && keys.has(collection.parentKey) && !keys.has(collection.key)) { keys.add(collection.key); changed = true; }
-    }
-  }
+  while (changed) { changed = false; for (const collection of collections) if (collection.parentKey && keys.has(collection.parentKey) && !keys.has(collection.key)) { keys.add(collection.key); changed = true; } }
   return keys;
 }
-
-function visibleItems(snapshot: ZoteroSnapshot, root: string, recursive: boolean): ZoteroItem[] {
-  const keys = scopeKeys(snapshot, root, recursive);
-  if (!root) return snapshot.items.filter(item => recursive || item.collectionKeys.some(k => keys.has(k)));
-  return snapshot.items.filter(item => item.collectionKeys.some(k => keys.has(k)));
+function normaliseDocument(document: CanvasDocument): CanvasDocument {
+  const nodes = [...(document.nodes ?? [])];
+  for (const text of document.textNodes ?? []) if (!nodes.some(node => node.id === text.id)) nodes.push({ ...text, kind: 'text', displayName: 'Text note', appearance: { borderColor: '#B79D73', borderWidth: 1.5, fillColor: '#FBF7EF' } });
+  const highestNumber = nodes.reduce((highest, node) => Math.max(highest, Number(/^#(\d+)$/.exec(node.displayName ?? '')?.[1] ?? 0)), 0);
+  return { ...document, name: document.name || 'Untitled board', layoutVersion: 3, nextNodeNumber: Math.max(document.nextNodeNumber ?? 1, highestNumber + 1), showAllDetails: Boolean(document.showAllDetails), nodes: nodes.map(node => ({ ...node, displayName: node.displayName ?? node.title ?? (node.kind === 'text' ? 'Text note' : node.kind === 'group' ? 'Group' : ''), titleFontSize: node.titleFontSize ?? 14, appearance: { ...DEFAULT_APPEARANCE, ...(node.appearance ?? {}) } })), edges: document.edges ?? [], textNodes: [], viewportZoom: document.viewportZoom || 1 };
+}
+function recordToNode(record: CanvasNodeRecord, snapshot: ZoteroSnapshot | null, callbacks: Pick<NodeData, 'onBeginRelation' | 'onPinDetails' | 'onPreview' | 'onTextChange'>, relationSource?: string | null, showAllDetails = false, connecting = false, itemMetadata: ZoteroItem[] = []): LitFlowNode {
+  return { id: record.id, type: `${record.kind}Node`, position: { x: record.x, y: record.y }, style: { width: record.width, height: record.height }, zIndex: record.zIndex ?? (record.kind === 'group' ? -1 : 1), data: { record, item: record.itemKey ? snapshot?.items.find(item => item.key === record.itemKey) ?? itemMetadata.find(item => item.key === record.itemKey) ?? null : null, relationSource: relationSource === record.id, suppressHover: Boolean(relationSource) || connecting, showAllDetails, connecting, ...callbacks } };
+}
+function recordToEdge(record: CanvasEdgeRecord): LitFlowEdge {
+  const color = record.color || '#7182A8'; return { id: record.id, source: record.source, target: record.target, sourceHandle: record.sourceHandle ?? undefined, targetHandle: record.targetHandle ?? undefined, label: record.label ?? '', type: 'smoothstep', markerEnd: record.isDirected ? { type: MarkerType.ArrowClosed, color } : undefined, style: { stroke: color, strokeWidth: record.width ?? 2, strokeDasharray: record.lineStyle === 'dashed' ? '8 5' : record.lineStyle === 'dotted' ? '2 6' : undefined }, labelStyle: { fill: color, fontWeight: 650, fontSize: 11 }, data: { note: record.note, color, isDirected: record.isDirected, width: record.width ?? 2 } };
+}
+function toDocument(base: CanvasDocument, nodes: LitFlowNode[], edges: LitFlowEdge[], viewport: { x: number; y: number; zoom: number }): CanvasDocument {
+  const records = nodes.map(node => ({ ...node.data.record, x: node.position.x, y: node.position.y, width: Number(node.style?.width ?? node.data.record.width), height: Number(node.style?.height ?? node.data.record.height), zIndex: node.zIndex ?? node.data.record.zIndex ?? 1 }));
+  const edgeRecords: CanvasEdgeRecord[] = edges.map(edge => ({ id: edge.id, source: edge.source, target: edge.target, sourceHandle: edge.sourceHandle, targetHandle: edge.targetHandle, label: typeof edge.label === 'string' ? edge.label : '', note: edge.data?.note, isDirected: edge.data?.isDirected ?? Boolean(edge.markerEnd), color: edge.data?.color ?? '#7182A8', width: edge.data?.width ?? Number(edge.style?.strokeWidth ?? 2), lineStyle: edge.style?.strokeDasharray === '8 5' ? 'dashed' : edge.style?.strokeDasharray === '2 6' ? 'dotted' : 'solid' }));
+  return { ...base, layoutVersion: 3, nodes: records, edges: edgeRecords, textNodes: [], viewportX: viewport.x, viewportY: viewport.y, viewportZoom: viewport.zoom, updatedAt: new Date().toISOString() };
 }
 
-function createInitialDocument(snapshot: ZoteroSnapshot, root: string, recursive: boolean): CanvasDocument {
-  const visible = scopeKeys(snapshot, root, recursive);
-  const collections = snapshot.collections.filter(c => visible.has(c.key));
-  const children = new Map<string, ZoteroCollection[]>();
-  for (const collection of collections) {
-    const parent = collection.parentKey && visible.has(collection.parentKey) ? collection.parentKey : '__root__';
-    const list = children.get(parent) ?? []; list.push(collection); children.set(parent, list);
-  }
-  const groupLayout = new Map<string, { x: number; y: number; width: number; height: number; depth: number }>();
-  const roots = children.get('__root__') ?? [];
-  const layoutGroup = (collection: ZoteroCollection, x: number, y: number, depth: number) => {
-    const childList = children.get(collection.key) ?? [];
-    const directCount = snapshot.items.filter(item => item.collectionKeys.includes(collection.key)).length;
-    const height = Math.max(280, Math.ceil(Math.max(1, directCount) / 2) * 186 + 94 + childList.length * 18);
-    const entry = { x, y, width: 474, height: Math.max(height, 330 + childList.length * 320), depth }; groupLayout.set(collection.key, entry);
-    const childY = y + 64 + Math.ceil(Math.max(1, directCount) / 2) * 186 + 20;
-    childList.forEach((child, index) => layoutGroup(child, x + 22 + (depth % 2) * 12, childY + index * 320, depth + 1));
+const anchorStyles: Array<{ key: string; position: Position; style: CSSProperties }> = [
+  { key: 'top-left', position: Position.Top, style: { left: '13%' } }, { key: 'top', position: Position.Top, style: { left: '50%' } }, { key: 'top-right', position: Position.Top, style: { left: '87%' } },
+  { key: 'right', position: Position.Right, style: { top: '50%' } }, { key: 'bottom-right', position: Position.Bottom, style: { left: '87%' } }, { key: 'bottom', position: Position.Bottom, style: { left: '50%' } },
+  { key: 'bottom-left', position: Position.Bottom, style: { left: '13%' } }, { key: 'left', position: Position.Left, style: { top: '50%' } },
+];
+function EightHandles() {
+  return <>{anchorStyles.map(anchor => <Handle key={anchor.key} type="source" id={`anchor-${anchor.key}`} position={anchor.position} className="flow-handle" style={anchor.style} isConnectableStart isConnectableEnd />)}</>;
+}
+function RelationButton({ id, data }: { id: string; data: NodeData }) { return <button className="node-relation-button nodrag nopan" title="建立关联" onClick={event => { event.stopPropagation(); data.onBeginRelation?.(id); }}><GitBranch size={13} /></button>; }
+function HoverInfo({ item, onPin }: { item: ZoteroItem; onPin: () => void }) {
+  const rows = [['原题名', item.title], ['第一作者', itemName(item)], ['通讯作者', item.correspondingAuthor], ['第一单位', item.firstAffiliation], ['年份', item.year], ['期刊', item.publicationTitle], ['DOI', item.doi]].filter(([, value]) => Boolean(value));
+  return <div className="hover-info nodrag nopan" onMouseDown={event => event.stopPropagation()}>{rows.map(([label, value]) => <div className="hover-row" key={label}><span>{label}</span><strong>{value}</strong></div>)}{item.abstractNote && <details><summary>摘要</summary><p>{item.abstractNote}</p></details>}<button onClick={onPin}><Info size={13} />固定查看</button></div>;
+}
+function useEdgeProximity() {
+  const [nearEdge, setNearEdge] = useState(false);
+  const move = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const distance = Math.min(event.clientX - bounds.left, bounds.right - event.clientX, event.clientY - bounds.top, bounds.bottom - event.clientY);
+    setNearEdge(distance <= 16);
   };
-  roots.forEach((collection, index) => layoutGroup(collection, (index % 2) * 530, Math.floor(index / 2) * 520, 0));
-  const items = visibleItems(snapshot, root, recursive);
-  const nodes: CanvasNodeRecord[] = [];
-  for (const [key, position] of groupLayout) {
-    const collection = snapshot.collections.find(c => c.key === key);
-    nodes.push({ id: `group:${key}`, kind: 'group', collectionKey: key, title: collection?.name ?? key, x: position.x, y: position.y, width: position.width, height: position.height });
-  }
-  if (!root && items.some(item => item.collectionKeys.length === 0)) {
-    groupLayout.set('__library__', { x: 0, y: Math.max(520, Math.ceil(roots.length / 2) * 520), width: 474, height: 320, depth: 0 });
-    nodes.push({ id: 'group:__library__', kind: 'group', collectionKey: '__library__', title: 'Unfiled in Zotero', x: 0, y: Math.max(520, Math.ceil(roots.length / 2) * 520), width: 474, height: 320 });
-  }
-  const counters = new Map<string, number>();
-  for (const item of items) {
-    const targets = item.collectionKeys.filter(key => visible.has(key));
-    if (!targets.length && !root) targets.push('__library__');
-    for (const collectionKey of targets) {
-      const group = groupLayout.get(collectionKey); if (!group) continue;
-      const count = counters.get(collectionKey) ?? 0; counters.set(collectionKey, count + 1);
-      nodes.push({ id: `paper:${item.key}:${collectionKey}`, kind: 'paper', itemKey: item.key, collectionKey, title: item.title, x: group.x + 22 + (count % 2) * 230, y: group.y + 64 + Math.floor(count / 2) * 184, width: 214, height: 156, isAlias: targets.length > 1 });
-    }
-  }
-  return { id: `personal:${root || 'library'}`, rootCollectionKey: root, recursive, layoutVersion: 1, nodes, edges: [], textNodes: [], viewportX: 0, viewportY: 0, viewportZoom: 1, updatedAt: new Date().toISOString() };
+  return { nearEdge, move, leave: () => setNearEdge(false) };
 }
-
-function recordToFlowNode(record: CanvasNodeRecord, snapshot: ZoteroSnapshot | null, onContextMenu: (event: ReactMouseEvent, node: Node<PaperNodeData>) => void): LitFlowNode {
-  if (record.kind === 'group') return { id: record.id, type: 'collectionGroup', position: { x: record.x, y: record.y }, draggable: false, selectable: false, connectable: false, zIndex: -1, style: { width: record.width, height: record.height }, data: { label: record.title ?? record.collectionKey ?? 'Collection', collectionKey: record.collectionKey ?? '', depth: 0 } } as LitFlowNode;
-  if (record.kind === 'text') return { id: record.id, type: 'textCard', position: { x: record.x, y: record.y }, style: { width: record.width, height: record.height }, data: { text: record.text ?? '' } } as LitFlowNode;
-  const item = snapshot?.items.find(i => i.key === record.itemKey) ?? null;
-  return { id: record.id, type: 'paperCard', position: { x: record.x, y: record.y }, style: { width: record.width, height: record.height }, data: { item, itemKey: record.itemKey ?? '', collectionKey: record.collectionKey, isAlias: Boolean(record.isAlias), isGhost: Boolean(record.isGhost) || !item, isOutOfScope: Boolean(record.isOutOfScope), onContextMenu } } as LitFlowNode;
+function AutoTitle({ title, preferredSize, className = 'node-title', reserve = 54 }: { title: string; preferredSize: number; className?: string; reserve?: number }) {
+  const ref = useRef<HTMLDivElement>(null); const [renderedSize, setRenderedSize] = useState(preferredSize);
+  useLayoutEffect(() => {
+    const element = ref.current; const parent = element?.parentElement; if (!element || !parent) return;
+    const fit = () => {
+      const available = Math.max(18, parent.clientHeight - reserve); let size = preferredSize;
+      // The user-set value remains the preferred value. This measurement only
+      // chooses a temporary display value for the current rectangle.
+      element.style.fontSize = `${size}px`;
+      while (size > 10 && element.scrollHeight > available) { size -= 1; element.style.fontSize = `${size}px`; }
+      setRenderedSize(size);
+    };
+    fit(); const observer = new ResizeObserver(fit); observer.observe(parent); return () => observer.disconnect();
+  }, [title, preferredSize, reserve]);
+  return <div ref={ref} className={className} style={{ fontSize: renderedSize }} title={title}>{title}</div>;
 }
-
-function documentToFlow(document: CanvasDocument, snapshot: ZoteroSnapshot | null, onContextMenu: (event: ReactMouseEvent, node: Node<PaperNodeData>) => void) {
-  const records = [...document.nodes, ...document.textNodes.map(t => ({ id: t.id, kind: 'text' as const, text: t.text, x: t.x, y: t.y, width: t.width, height: t.height }))];
-  return {
-    nodes: records.map(record => recordToFlowNode(record, snapshot, onContextMenu)),
-    edges: document.edges.map(edge => ({ id: edge.id, source: edge.source, target: edge.target, label: edge.label ?? '', type: 'smoothstep', markerEnd: edge.isDirected ? { type: MarkerType.ArrowClosed, color: edge.color } : undefined, style: { stroke: edge.color, strokeWidth: 2, strokeDasharray: edge.lineStyle === 'dashed' ? '8 5' : edge.lineStyle === 'dotted' ? '2 6' : undefined }, labelStyle: { fill: edge.color, fontWeight: 700 }, data: { note: edge.note, color: edge.color, isDirected: edge.isDirected } })) as LitFlowEdge[],
-  };
-}
-
-function flowToDocument(nodes: LitFlowNode[], edges: LitFlowEdge[], root: string, recursive: boolean, viewport: { x: number; y: number; zoom: number }): CanvasDocument {
-  const records: CanvasNodeRecord[] = [];
-  const textNodes: CanvasDocument['textNodes'] = [];
-  for (const node of nodes) {
-    const width = typeof node.style?.width === 'number' ? node.style.width : 220;
-    const height = typeof node.style?.height === 'number' ? node.style.height : 150;
-    if (node.type === 'textCard') { const data = node.data as { text: string }; textNodes.push({ id: node.id, text: data.text, x: node.position.x, y: node.position.y, width, height }); continue; }
-    const data = node.data as { label?: string; collectionKey?: string; itemKey?: string; item?: ZoteroItem | null; isAlias?: boolean; isGhost?: boolean; isOutOfScope?: boolean };
-    records.push({ id: node.id, kind: node.type === 'collectionGroup' ? 'group' : 'paper', itemKey: data.itemKey, collectionKey: data.collectionKey, title: node.type === 'collectionGroup' ? data.label : data.item?.title, x: node.position.x, y: node.position.y, width, height, isAlias: data.isAlias, isGhost: data.isGhost, isOutOfScope: data.isOutOfScope });
-  }
-  const edgeRecords: CanvasEdgeRecord[] = edges.map(edge => ({ id: edge.id, source: edge.source, target: edge.target, label: typeof edge.label === 'string' ? edge.label : '', note: edge.data?.note, isDirected: edge.data?.isDirected ?? Boolean(edge.markerEnd), color: edge.data?.color ?? '#7C9CFF', lineStyle: edge.style?.strokeDasharray === '8 5' ? 'dashed' : edge.style?.strokeDasharray === '2 6' ? 'dotted' : 'solid' }));
-  return { id: `personal:${root || 'library'}`, rootCollectionKey: root, recursive, layoutVersion: 1, nodes: records, edges: edgeRecords, textNodes, viewportX: viewport.x, viewportY: viewport.y, viewportZoom: viewport.zoom, updatedAt: new Date().toISOString() };
-}
-
-function GroupFrame({ data }: NodeProps<Node<{ label: string; collectionKey: string; depth: number }>>) {
-  return <div className="group-frame"><div className="group-frame-title"><FolderOpen size={15} /><span>{data.label}</span></div><span className="group-key">{data.collectionKey === '__library__' ? 'Zotero' : data.collectionKey}</span></div>;
-}
-
-function PaperCard({ id, data, selected }: NodeProps<Node<PaperNodeData>>) {
-  const item = data.item;
-  const title = (item?.title ?? data.itemKey) || 'Deleted Zotero item';
-  return <div className={`paper-card ${selected ? 'selected' : ''} ${data.isGhost ? 'ghost' : ''} ${data.isOutOfScope ? 'out-scope' : ''}`} onContextMenu={(event) => data.onContextMenu?.(event, { id, data } as Node<PaperNodeData>)}>
-    <Handle type="target" position={Position.Top} className="flow-handle" />
-    <div className="paper-card-top"><BookOpen size={15} /><div className="paper-badges">{data.isAlias && <span className="badge alias">Alias</span>}{data.isGhost && <span className="badge ghost-badge">Ghost</span>}{data.isOutOfScope && <span className="badge scope-badge">Out of scope</span>}</div></div>
-    <div className="paper-title" title={title}>{title}</div>
-    {item ? <>
-      <div className="paper-author">{item.firstAuthor || item.creators?.[0]?.displayName || item.creators?.[0]?.name || '—'}{item.correspondingAuthor ? <span className="corresponding"> · {item.correspondingAuthor}</span> : null}</div>
-      <div className="paper-meta"><span>{item.year || '—'}</span><span>{item.publicationTitle || 'No journal'}</span><span className={item.hasPdf ? 'pdf-ok' : 'pdf-none'}>{item.hasPdf ? 'PDF' : 'No PDF'}</span></div>
-    </> : <div className="paper-author">This item is no longer in the Zotero snapshot.</div>}
-    <Handle type="source" position={Position.Bottom} className="flow-handle" />
+function PaperNode({ id, data, selected }: NodeProps<LitFlowNode>) {
+  const [show, setShow] = useState(false); const timer = useRef<number>(); const record = data.record; const item = data.item;
+  const proximity = useEdgeProximity();
+  const enter = () => { if (data.suppressHover || !item) return; timer.current = window.setTimeout(() => setShow(true), 150); };
+  const leave = () => { if (timer.current) window.clearTimeout(timer.current); window.setTimeout(() => setShow(false), 130); };
+  const appearance = record.appearance ?? DEFAULT_APPEARANCE;
+  return <div className={`board-node paper-node ${selected ? 'selected' : ''} ${proximity.nearEdge || data.connecting ? 'edge-near' : ''} ${data.relationSource ? 'relation-source' : ''} ${record.isGhost || !item ? 'ghost' : ''}`} style={{ borderColor: appearance.borderColor, borderWidth: appearance.borderWidth, background: appearance.fillColor }} onMouseEnter={enter} onMouseLeave={() => { leave(); proximity.leave(); }} onPointerMove={proximity.move}>
+    <NodeResizer minWidth={180} minHeight={Math.max(96, Math.ceil((record.displayName?.length ?? 1) / 17) * 18 + 64)} isVisible={selected} lineClassName="resizer-line" handleClassName="resizer-handle" />
+    <EightHandles /><div className="node-heading"><BookOpen size={15} /><span>{record.isGhost || !item ? '来源缺失' : 'Zotero 文献'}</span><RelationButton id={id} data={data} /></div>
+    <AutoTitle title={record.displayName || '未命名文献'} preferredSize={record.titleFontSize ?? 14} /><div className="node-subtitle">{item ? `${itemName(item)} · ${item.year || '—'}` : record.title || record.itemKey}</div>
+    {item?.hasPdf && <span className="pdf-chip">PDF</span>}{!data.suppressHover && (show || data.showAllDetails) && item && <HoverInfo item={item} onPin={() => data.onPinDetails?.(id)} />}
   </div>;
 }
-
-function TextCard({ data }: NodeProps<Node<{ text: string }>>) { return <div className="text-card"><StickyNote size={15} /><div>{data.text || 'Text note'}</div></div>; }
-
-const nodeTypes: NodeTypes = { collectionGroup: GroupFrame, paperCard: PaperCard, textCard: TextCard };
-const edgeTypes: EdgeTypes = {};
+function ImageNode({ id, data, selected }: NodeProps<LitFlowNode>) {
+  const record = data.record; const appearance = record.appearance ?? DEFAULT_APPEARANCE;
+  const proximity = useEdgeProximity();
+  return <div className={`board-node image-node ${selected ? 'selected' : ''} ${proximity.nearEdge || data.connecting ? 'edge-near' : ''} ${data.relationSource ? 'relation-source' : ''}`} style={{ borderColor: appearance.borderColor, borderWidth: appearance.borderWidth, background: appearance.fillColor }} onPointerMove={proximity.move} onPointerLeave={proximity.leave} onDoubleClick={event => { event.stopPropagation(); data.onPreview?.(id); }}>
+    <NodeResizer minWidth={160} minHeight={120} isVisible={selected} lineClassName="resizer-line" handleClassName="resizer-handle" /><EightHandles />
+    <img src={imageUrl(record.imageId)} alt={record.displayName || 'Whiteboard image'} draggable={false} /><div className="image-caption"><FileImage size={13} /><AutoTitle title={record.displayName || 'Image'} preferredSize={record.titleFontSize ?? 14} className="image-title" reserve={0} /><RelationButton id={id} data={data} /></div>
+  </div>;
+}
+function TextNode({ id, data, selected }: NodeProps<LitFlowNode>) {
+  const record = data.record; const appearance = record.appearance ?? DEFAULT_APPEARANCE;
+  const proximity = useEdgeProximity();
+  return <div className={`board-node text-node ${selected ? 'selected' : ''} ${proximity.nearEdge || data.connecting ? 'edge-near' : ''} ${data.relationSource ? 'relation-source' : ''}`} style={{ borderColor: appearance.borderColor, borderWidth: appearance.borderWidth, background: appearance.fillColor }} onPointerMove={proximity.move} onPointerLeave={proximity.leave}>
+    <NodeResizer minWidth={150} minHeight={80} isVisible={selected} lineClassName="resizer-line" handleClassName="resizer-handle" /><EightHandles /><div className="text-node-bar"><StickyNote size={14} /><RelationButton id={id} data={data} /></div>
+    <textarea className="nodrag nopan" value={record.text ?? ''} aria-label="文字内容" onChange={event => data.onTextChange?.(id, event.target.value)} placeholder="输入文字…" />
+  </div>;
+}
+function GroupNode({ id, data, selected }: NodeProps<LitFlowNode>) {
+  const record = data.record; const appearance = record.appearance ?? DEFAULT_APPEARANCE;
+  const proximity = useEdgeProximity();
+  return <div className={`board-node group-node ${selected ? 'selected' : ''} ${proximity.nearEdge || data.connecting ? 'edge-near' : ''}`} style={{ borderColor: appearance.borderColor, borderWidth: appearance.borderWidth, background: appearance.fillColor }} onPointerMove={proximity.move} onPointerLeave={proximity.leave}>
+    <NodeResizer minWidth={220} minHeight={150} isVisible={selected} lineClassName="resizer-line" handleClassName="resizer-handle" /><EightHandles /><div className="group-label"><GripVertical size={14} /><AutoTitle title={record.displayName || 'Group'} preferredSize={record.titleFontSize ?? 14} className="group-title" reserve={20} /></div><RelationButton id={id} data={data} />
+  </div>;
+}
+const nodeTypes: NodeTypes = { paperNode: PaperNode, imageNode: ImageNode, textNode: TextNode, groupNode: GroupNode };
 
 function AppInner() {
-  const [language, setLanguage] = useState<Language>(() => navigator.language.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US');
-  const t = useText(language);
-  const [snapshot, setSnapshot] = useState<ZoteroSnapshot | null>(null);
-  const [status, setStatus] = useState<ZoteroStatus | null>(null);
-  const [selectedCollection, setSelectedCollection] = useState('');
-  const [recursive, setRecursive] = useState(true);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [query, setQuery] = useState('');
-  const [flowNodes, setFlowNodes] = useState<LitFlowNode[]>([]);
-  const [flowEdges, setFlowEdges] = useState<LitFlowEdge[]>([]);
-  const [canvas, setCanvas] = useState<CanvasDocument | null>(null);
-  const [reviewKeys, setReviewKeys] = useState<string[]>([]);
-  const [reviewOpen, setReviewOpen] = useState(true);
-  const [reviewSelected, setReviewSelected] = useState<Set<string>>(new Set());
-  const [lastDiff, setLastDiff] = useState<RefreshDiff | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [lastRefresh, setLastRefresh] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [menu, setMenu] = useState<MenuState>(null);
-  const [dialog, setDialog] = useState<DialogState>(null);
-  const [relationSource, setRelationSource] = useState<string | null>(null);
-  const [selectedNode, setSelectedNode] = useState<string | null>(null);
-  const canvasRef = useRef<CanvasDocument | null>(null);
-  const reviewRef = useRef(new Set<string>());
-  const saveTimer = useRef<number | undefined>(undefined);
-  const past = useRef<Array<{ nodes: LitFlowNode[]; edges: LitFlowEdge[] }>>([]);
-  const future = useRef<Array<{ nodes: LitFlowNode[]; edges: LitFlowEdge[] }>>([]);
-  const [, redrawHistory] = useState(0);
-  const { fitView } = useReactFlow();
-  useEffect(() => { canvasRef.current = canvas; }, [canvas]);
-  useEffect(() => { reviewRef.current = new Set(reviewKeys); }, [reviewKeys]);
-
-  const onPaperContextMenu = useCallback((event: ReactMouseEvent, node: Node<PaperNodeData>) => { event.preventDefault(); setMenu({ x: event.clientX, y: event.clientY, nodeId: node.id, itemKey: node.data.itemKey }); }, []);
-  const syncCanvas = useCallback((nodes: LitFlowNode[], edges: LitFlowEdge[], viewport = { x: canvasRef.current?.viewportX ?? 0, y: canvasRef.current?.viewportY ?? 0, zoom: canvasRef.current?.viewportZoom ?? 1 }) => {
-    if (!canvasRef.current) return;
-    const next = flowToDocument(nodes, edges, canvasRef.current.rootCollectionKey, canvasRef.current.recursive, viewport);
-    canvasRef.current = next; setCanvas(next);
-    if (saveTimer.current) window.clearTimeout(saveTimer.current);
-    saveTimer.current = window.setTimeout(() => { void saveCanvas(next).catch((e: Error) => setError(e.message)); }, 380);
+  const { fitView, screenToFlowPosition } = useReactFlow();
+  const [snapshot, setSnapshot] = useState<ZoteroSnapshot | null>(null); const [status, setStatus] = useState<ZoteroStatus | null>(null);
+  const [lastRefresh, setLastRefresh] = useState<string | null>(null); const [boards, setBoards] = useState<BoardSummary[]>([]); const [openBoardIds, setOpenBoardIds] = useState<string[]>([]); const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
+  const [document, setDocument] = useState<CanvasDocument | null>(null); const [flowNodes, setFlowNodes] = useState<LitFlowNode[]>([]); const [flowEdges, setFlowEdges] = useState<LitFlowEdge[]>([]);
+  const [selectedCollection, setSelectedCollection] = useState(''); const [recursive, setRecursive] = useState(true); const [expanded, setExpanded] = useState<Set<string>>(new Set()); const [query, setQuery] = useState(''); const [searchAll, setSearchAll] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false); const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved'); const [notice, setNotice] = useState<Notice>(null); const [error, setError] = useState<string | null>(null);
+  const [noteDialog, setNoteDialog] = useState<NoteDialog | null>(null); const [edgeDialog, setEdgeDialog] = useState<EdgeDialog | null>(null); const [menu, setMenu] = useState<ContextState>(null); const [relationSource, setRelationSource] = useState<string | null>(null); const [pinnedNodeId, setPinnedNodeId] = useState<string | null>(null); const [boardPicker, setBoardPicker] = useState(false); const [workspacePath, setWorkspacePath] = useState(''); const [isConnecting, setIsConnecting] = useState(false);
+  const [collectionPane, setCollectionPane] = useState(43); const [resizingPane, setResizingPane] = useState(false); const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const docRef = useRef<CanvasDocument | null>(null); const nodesRef = useRef<LitFlowNode[]>([]); const edgesRef = useRef<LitFlowEdge[]>([]); const viewportRef = useRef({ x: 0, y: 0, zoom: 1 }); const saveTimer = useRef<number>(); const saveRevision = useRef(0); const savedRevision = useRef(0); const saveQueue = useRef<Promise<boolean>>(Promise.resolve(true)); const connectionStart = useRef<{ nodeId: string | null; handleId?: string | null } | null>(null); const histories = useRef(new Map<string, History>()); const fileInput = useRef<HTMLInputElement>(null); const initialized = useRef(false);
+  const expandedOnce = useRef(false);
+  const updateText = useCallback((id: string, text: string) => {
+    const next = nodesRef.current.map(node => node.id === id ? { ...node, data: { ...node.data, record: { ...node.data.record, text } } } : node); commit(next, edgesRef.current, false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const recordHistory = useCallback((nextNodes: LitFlowNode[], nextEdges: LitFlowEdge[]) => {
-    past.current.push({ nodes: flowNodes, edges: flowEdges });
-    if (past.current.length > 80) past.current.shift();
-    future.current = [];
-    redrawHistory(value => value + 1);
-    setFlowNodes(nextNodes); setFlowEdges(nextEdges); syncCanvas(nextNodes, nextEdges);
-  }, [flowEdges, flowNodes, syncCanvas]);
-  const undo = () => {
-    const previous = past.current.pop(); if (!previous) return;
-    future.current.push({ nodes: flowNodes, edges: flowEdges }); setFlowNodes(previous.nodes); setFlowEdges(previous.edges); syncCanvas(previous.nodes, previous.edges); redrawHistory(value => value + 1);
+  const callbacks = useMemo(() => ({ onBeginRelation: (id: string) => { setRelationSource(id); setNotice({ kind: 'info', message: '已选起点，请点击另一张卡片，或拖动连接点。' }); }, onPinDetails: (id: string) => setPinnedNodeId(id), onPreview: (id: string) => setImagePreview(nodesRef.current.find(node => node.id === id)?.data.record.imageId ?? null), onTextChange: (id: string, text: string) => updateText(id, text) }), [updateText]);
+  const collectionMap = useMemo(() => new Map((snapshot?.collections ?? []).map(collection => [collection.key, collection])), [snapshot]);
+  const childMap = useMemo(() => { const map = new Map<string, ZoteroCollection[]>(); for (const collection of snapshot?.collections ?? []) { const parent = collection.parentKey ?? '__root__'; map.set(parent, [...(map.get(parent) ?? []), collection].sort((a, b) => a.name.localeCompare(b.name))); } return map; }, [snapshot]);
+  const selectedKeys = useMemo(() => recursive ? descendantKeys(selectedCollection, snapshot?.collections ?? []) : new Set(selectedCollection ? [selectedCollection] : []), [recursive, selectedCollection, snapshot]);
+  const sidebarItems = useMemo(() => (snapshot?.items ?? []).filter(item => !selectedCollection || item.collectionKeys.some(key => selectedKeys.has(key))), [snapshot, selectedCollection, selectedKeys]);
+  const visibleItems = useMemo(() => { const source = searchAll && query.trim() ? snapshot?.items ?? [] : sidebarItems; const normalized = query.trim().toLowerCase(); return normalized ? source.filter(item => [item.title, item.firstAuthor, item.publicationTitle, item.doi, item.tags.join(' ')].filter(Boolean).join(' ').toLowerCase().includes(normalized)) : source; }, [snapshot, sidebarItems, searchAll, query]);
+  const selectedNodes = flowNodes.filter(node => node.selected); const pinnedItem = pinnedNodeId ? flowNodes.find(node => node.id === pinnedNodeId)?.data.item : null;
+
+  const materialize = useCallback((nextDocument: CanvasDocument, relation: string | null = null) => {
+    const normalized = normaliseDocument(nextDocument); docRef.current = normalized; viewportRef.current = { x: normalized.viewportX, y: normalized.viewportY, zoom: normalized.viewportZoom };
+    const nextNodes = normalized.nodes.map(record => recordToNode(record, snapshot, callbacks, relation, normalized.showAllDetails, isConnecting, normalized.itemMetadata ?? [])); const nextEdges = normalized.edges.map(recordToEdge);
+    nodesRef.current = nextNodes; edgesRef.current = nextEdges; setDocument(normalized); setFlowNodes(nextNodes); setFlowEdges(nextEdges); setRelationSource(relation); setPinnedNodeId(null);
+  }, [callbacks, snapshot, isConnecting]);
+  const commit = useCallback((nextNodes: LitFlowNode[], nextEdges: LitFlowEdge[], addHistory = true) => {
+    const current = docRef.current; if (!current) return; const history = histories.current.get(current.id) ?? { past: [], future: [] };
+    if (addHistory) { history.past.push({ nodes: nodesRef.current, edges: edgesRef.current }); if (history.past.length > 70) history.past.shift(); history.future = []; histories.current.set(current.id, history); }
+    const nextDocument = toDocument(current, nextNodes, nextEdges, viewportRef.current); saveRevision.current += 1; docRef.current = nextDocument; nodesRef.current = nextNodes; edgesRef.current = nextEdges; setDocument(nextDocument); setFlowNodes(nextNodes); setFlowEdges(nextEdges);
+  }, []);
+  const flushSave = useCallback(async (): Promise<boolean> => { const current = docRef.current; if (!current) return true; window.clearTimeout(saveTimer.current); const revision = saveRevision.current; const copy = structuredClone(current); setSaveState('saving'); const write = async (): Promise<boolean> => { try { const result = await saveBoard(copy); savedRevision.current = Math.max(savedRevision.current, revision); if (revision === saveRevision.current) setSaveState(result.sourceError ? 'error' : 'saved'); if (result.sourceError) { setError(`白板已存入本地数据库，但源文件未写入：${result.sourceError}`); return false; } setBoards(previous => previous.map(board => board.id === copy.id ? { ...board, name: copy.name, updatedAt: result.savedAt ?? copy.updatedAt } : board)); return true; } catch (reason) { if (revision === saveRevision.current) setSaveState('error'); setError(reason instanceof Error ? reason.message : '保存失败'); return false; } }; const queued = saveQueue.current.catch(() => false).then(write); saveQueue.current = queued; return queued; }, []);
+  useEffect(() => { if (!document) return; window.clearTimeout(saveTimer.current); setSaveState('saving'); saveTimer.current = window.setTimeout(() => void flushSave(), 420); return () => window.clearTimeout(saveTimer.current); }, [document, flushSave]);
+  useEffect(() => { if (!activeBoardId) return; void saveBoardSession(JSON.stringify({ openBoardIds, activeBoardId })); }, [openBoardIds, activeBoardId]);
+  useEffect(() => () => { void flushSave(); }, [flushSave]);
+  useEffect(() => { window.litweavePrepareToClose = () => { void (async () => { const saved = await flushSave(); await invoke('PrepareToClose', { saved }); })(); }; return () => { delete window.litweavePrepareToClose; }; }, [flushSave]);
+  useEffect(() => {
+    const handler = (event: globalThis.KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); void flushSave(); }
+      if (event.key === 'Escape' && isConnecting) { setIsConnecting(false); setRelationSource(null); setNotice({ kind: 'info', message: '已取消连线。' }); }
+    };
+    window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler);
+  }, [flushSave, isConnecting]);
+  useEffect(() => { if (!snapshot || !nodesRef.current.length) return; const metadata = docRef.current?.itemMetadata ?? []; const refreshed = nodesRef.current.map(node => node.data.record.itemKey ? { ...node, data: { ...node.data, item: snapshot.items.find(item => item.key === node.data.record.itemKey) ?? metadata.find(item => item.key === node.data.record.itemKey) ?? null } } : node); nodesRef.current = refreshed; setFlowNodes(refreshed); }, [snapshot]);
+  useEffect(() => { if (snapshot && !expandedOnce.current) { expandedOnce.current = true; setExpanded(new Set(snapshot.collections.filter(collection => !collection.parentKey).map(collection => collection.key))); } }, [snapshot]);
+
+  const switchBoard = useCallback(async (boardId: string) => { if (boardId === activeBoardId) return; const saved = await flushSave(); if (saved === false) return; try { const result = await loadBoard(boardId); if (!result.document) throw new Error('该白板已不存在。'); materialize(result.document); setActiveBoardId(boardId); if (!openBoardIds.includes(boardId)) setOpenBoardIds(previous => [...previous, boardId]); } catch (reason) { setError(reason instanceof Error ? reason.message : '无法打开白板'); } }, [activeBoardId, flushSave, materialize, openBoardIds]);
+  const newBoard = useCallback(async () => { try { if (!await flushSave()) return; const result = await createBoard('Untitled board'); materialize(result.document); setBoards(previous => [{ id: result.document.id, name: result.document.name, updatedAt: result.document.updatedAt }, ...previous]); setOpenBoardIds(previous => [...previous, result.document.id]); setActiveBoardId(result.document.id); } catch (reason) { setError(reason instanceof Error ? reason.message : '无法新建白板'); } }, [flushSave, materialize]);
+  const importBoard = async () => { try { const result = await importBoardPackage(); if (!result.imported || !result.document) return; materialize(result.document); setBoards(previous => [{ id: result.document!.id, name: result.document!.name, updatedAt: result.document!.updatedAt }, ...previous]); setOpenBoardIds(previous => [...previous, result.document!.id]); setActiveBoardId(result.document.id); setNotice({ kind: 'success', message: '源文件已导入为新的白板。原有白板未被修改。' }); } catch (reason) { setError(reason instanceof Error ? reason.message : '无法导入源文件'); } };
+  useEffect(() => { if (initialized.current) return; initialized.current = true; void (async () => { try { const [state, boardResult, sessionResult, workspace] = await Promise.all([getAppState(), listBoards(), getBoardSession(), getWorkspaceDirectory()]); setSnapshot(state.snapshot); setStatus(state.status); setLastRefresh(state.lastRefresh ?? null); setBoards(boardResult.boards); setWorkspacePath(workspace.path || state.workspacePath || ''); let session: { openBoardIds?: string[]; activeBoardId?: string | null } = {}; try { session = sessionResult.value ? JSON.parse(sessionResult.value) : {}; } catch { /* start fresh */ }
+      const available = new Set(boardResult.boards.map(board => board.id)); const open = (session.openBoardIds ?? []).filter(id => available.has(id)); const first = session.activeBoardId && available.has(session.activeBoardId) ? session.activeBoardId : open[0] ?? boardResult.boards[0]?.id;
+      if (first) { const loaded = await loadBoard(first); if (loaded.document) { materialize(loaded.document); setActiveBoardId(first); setOpenBoardIds(open.length ? open : [first]); return; } }
+      const created = await createBoard('Untitled board'); materialize(created.document); setBoards([{ id: created.document.id, name: created.document.name, updatedAt: created.document.updatedAt }]); setOpenBoardIds([created.document.id]); setActiveBoardId(created.document.id);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'LitWeave 无法初始化'); } })(); }, [materialize]);
+
+  const handleRefresh = async () => { setIsRefreshing(true); try { const result = await refreshZotero(); setSnapshot(result.snapshot); setStatus(result.status); setLastRefresh(result.snapshot.refreshedAt); const changed = result.diff.newItemKeys.length + result.diff.updatedItemKeys.length + result.diff.removedItemKeys.length; setNotice({ kind: 'success', message: changed ? `已刷新：${result.diff.newItemKeys.length} 篇新增，${result.diff.updatedItemKeys.length} 篇更新。白板未被改动。` : 'Zotero 已刷新，没有新的变化。' }); } catch (reason) { setError(reason instanceof Error ? reason.message : '刷新失败'); } finally { setIsRefreshing(false); } };
+  const checkConnection = async () => { try { setStatus(await checkZotero()); } catch (reason) { setError(reason instanceof Error ? reason.message : '无法检查 Zotero'); } };
+  const nextDefaultTitle = () => {
+    const current = docRef.current; if (!current) return '#1';
+    const number = Math.max(1, current.nextNodeNumber ?? 1);
+    docRef.current = { ...current, nextNodeNumber: number + 1 };
+    return `#${number}`;
   };
-  const redo = () => {
-    const next = future.current.pop(); if (!next) return;
-    past.current.push({ nodes: flowNodes, edges: flowEdges }); setFlowNodes(next.nodes); setFlowEdges(next.edges); syncCanvas(next.nodes, next.edges); redrawHistory(value => value + 1);
-  };
-  const loadCurrentCanvas = useCallback(async (root: string, recursiveMode: boolean, currentSnapshot: ZoteroSnapshot | null) => {
-    if (!currentSnapshot) { setCanvas(null); setFlowNodes([]); setFlowEdges([]); return; }
-    try {
-      const loaded = await loadCanvas(root);
-      let document = loaded.document;
-      if (!document) {
-        document = createInitialDocument(currentSnapshot, root, recursiveMode);
-        await saveCanvas(document);
-      } else {
-        document.recursive = recursiveMode;
-        const visible = scopeKeys(currentSnapshot, root, recursiveMode);
-        document.nodes = document.nodes.filter(node => node.kind === 'text' || (node.kind === 'group' ? Boolean(node.collectionKey && visible.has(node.collectionKey)) : Boolean(node.collectionKey && visible.has(node.collectionKey))));
-        for (const node of document.nodes) {
-          if (node.kind === 'paper') { const item = currentSnapshot.items.find(i => i.key === node.itemKey); node.isGhost = !item; node.isOutOfScope = Boolean(item && !item.collectionKeys.some(key => visible.has(key))); }
-        }
-      }
-      const flows = documentToFlow(document, currentSnapshot, onPaperContextMenu);
-      canvasRef.current = document; setCanvas(document); setFlowNodes(flows.nodes); setFlowEdges(flows.edges); setError(null);
-      window.setTimeout(() => fitView({ padding: 0.18, duration: 280 }), 40);
-    } catch (e) { setError((e as Error).message); }
-  }, [fitView, onPaperContextMenu]);
-
-  useEffect(() => { void getAppState().then((state: AppState) => { setSnapshot(state.snapshot); setStatus(state.status); setLastRefresh(state.lastRefresh ?? null); }).catch((e: Error) => setError(e.message)); }, []);
-  useEffect(() => { if (snapshot) void loadCurrentCanvas(selectedCollection, recursive, snapshot); }, [selectedCollection]); // Collection clicks are explicit; recursive uses its own handler.
-
-  const collections = snapshot?.collections ?? [];
-  const collectionMap = useMemo(() => new Map(collections.map(collection => [collection.key, collection])), [collections]);
-  const childMap = useMemo(() => { const map = new Map<string, ZoteroCollection[]>(); for (const collection of collections) { const parent = collection.parentKey || '__root__'; const list = map.get(parent) ?? []; list.push(collection); map.set(parent, list); } for (const list of map.values()) list.sort((a, b) => a.name.localeCompare(b.name)); return map; }, [collections]);
-  const currentScope = useMemo(() => scopeKeys(snapshot ?? { collections: [], items: [], libraryKey: 'personal', refreshedAt: '', contentHash: '' }, selectedCollection, recursive), [snapshot, selectedCollection, recursive]);
-  const filteredItems = useMemo(() => { const items = snapshot?.items.filter(item => !selectedCollection || item.collectionKeys.some(key => currentScope.has(key))) ?? []; const normalized = query.trim().toLowerCase(); return normalized ? items.filter(item => [item.title, item.firstAuthor, item.correspondingAuthor, item.doi, item.publicationTitle].some(value => value?.toLowerCase().includes(normalized))) : items; }, [snapshot, selectedCollection, currentScope, query]);
-  const reviewItems = useMemo(() => (snapshot?.items ?? []).filter(item => reviewKeys.includes(item.key)), [snapshot, reviewKeys]);
-
-  const setCollection = (key: string) => { setSelectedCollection(key); setRelationSource(null); };
-  const toggleExpanded = (key: string) => setExpanded(previous => { const next = new Set(previous); if (next.has(key)) next.delete(key); else next.add(key); return next; });
-  const renderCollection = (collection: ZoteroCollection, depth: number) => { const children = childMap.get(collection.key) ?? []; const isOpen = expanded.has(collection.key) || depth === 0; return <div key={collection.key}><button className={`collection-row ${selectedCollection === collection.key ? 'active' : ''}`} style={{ paddingLeft: 12 + depth * 16 }} onClick={() => setCollection(collection.key)}><span className="tree-toggle" onClick={(event) => { event.stopPropagation(); toggleExpanded(collection.key); }}>{children.length ? (isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : <span className="tree-spacer" />}</span><FolderOpen size={15} /><span className="collection-name" title={collection.name}>{collection.name}</span><span className="collection-count">{collection.itemCount ?? ''}</span></button>{isOpen && children.map(child => renderCollection(child, depth + 1))}</div>; };
-
-  const reconcileAfterRefresh = (nextSnapshot: ZoteroSnapshot, diff: RefreshDiff) => {
-    setSnapshot(nextSnapshot); setStatus({ isRunning: true, apiEnabled: true, message: t('online'), checkedAt: new Date().toISOString() }); setLastRefresh(nextSnapshot.refreshedAt); setLastDiff(diff); setReviewKeys(previous => diff.isBaseline ? [] : [...new Set([...previous, ...diff.newItemKeys])]);
-    if (!canvasRef.current) { void loadCurrentCanvas(selectedCollection, recursive, nextSnapshot); return; }
-    const nextNodes = flowNodes.map(node => { if (node.type !== 'paperCard') return node; const data = node.data as PaperNodeData; const item = nextSnapshot.items.find(i => i.key === data.itemKey) ?? null; return { ...node, data: { ...data, item, isGhost: !item, isOutOfScope: Boolean(item && selectedCollection && !item.collectionKeys.some(key => currentScope.has(key))) } }; });
-    setFlowNodes(nextNodes); syncCanvas(nextNodes, flowEdges);
-  };
-  const handleRefresh = async () => { setIsRefreshing(true); setError(null); try { const result = await refreshZotero(); reconcileAfterRefresh(result.snapshot, result.diff); } catch (e) { setError((e as Error).message); setStatus({ isRunning: false, apiEnabled: false, message: t('offline'), checkedAt: new Date().toISOString() }); } finally { setIsRefreshing(false); } };
-
-  const addItems = (itemsToAdd: ZoteroItem[]) => {
-    if (!snapshot || !canvasRef.current || !itemsToAdd.length) return;
-    let nextNodes = [...flowNodes]; let paperCount = nextNodes.filter(node => node.type === 'paperCard').length; const addedKeys: string[] = []; let focusId: string | undefined;
-    for (const item of itemsToAdd) {
-      const existing = nextNodes.find(node => node.type === 'paperCard' && (node.data as PaperNodeData).itemKey === item.key);
-      if (existing) { focusId = existing.id; addedKeys.push(item.key); continue; }
-      const target = item.collectionKeys.find(key => currentScope.has(key)) ?? (selectedCollection || item.collectionKeys[0]);
-      const group = nextNodes.find(node => node.type === 'collectionGroup' && (node.data as { collectionKey?: string }).collectionKey === target);
-      const record: CanvasNodeRecord = { id: `paper:${item.key}:${target || 'library'}`, kind: 'paper', itemKey: item.key, collectionKey: target || '__library__', title: item.title, x: group ? group.position.x + 22 + (paperCount % 2) * 230 : paperCount * 28, y: group ? group.position.y + 64 + Math.floor(paperCount / 2) * 184 : paperCount * 28, width: 214, height: 156, isAlias: item.collectionKeys.length > 1 };
-      nextNodes = [...nextNodes, recordToFlowNode(record, snapshot, onPaperContextMenu)]; paperCount += 1; addedKeys.push(item.key);
+  const beginPaper = (itemKey: string, point: Point) => {
+    const duplicate = nodesRef.current.find(node => node.data.record.kind === 'paper' && node.data.record.itemKey === itemKey);
+    if (duplicate) {
+      setNotice({ kind: 'info', message: `这篇文献已在当前白板中：${duplicate.data.record.displayName || '未命名卡片'}。已定位；需要另一个视角可用右键“创建副本”。` });
+      setFlowNodes(nodesRef.current.map(node => ({ ...node, selected: node.id === duplicate.id })));
+      void fitView({ nodes: [duplicate], padding: 0.55, duration: 220 });
+      return;
     }
-    if (focusId) nextNodes = nextNodes.map(node => ({ ...node, selected: node.id === focusId }));
-    if (nextNodes.length !== flowNodes.length || focusId) recordHistory(nextNodes, flowEdges);
-    setReviewKeys(keys => keys.filter(key => !addedKeys.includes(key))); setReviewSelected(keys => { const next = new Set(keys); addedKeys.forEach(key => next.delete(key)); return next; });
-    if (focusId) { setSelectedNode(focusId); window.setTimeout(() => fitView({ nodes: [{ id: focusId! }], padding: 0.45, duration: 300 }), 30); }
+    const collision = nodesRef.current.some(node => Math.abs(node.position.x - point.x) < 120 && Math.abs(node.position.y - point.y) < 80);
+    const index = Math.max(1, nodesRef.current.length);
+    const placement = collision ? { x: point.x + 280 * (index % 3), y: point.y + 168 * Math.floor(index / 3) } : point;
+    const item = snapshot?.items.find(candidate => candidate.key === itemKey); if (!item) { setError('此文献已不在当前 Zotero 缓存中。'); return; }
+    const record: CanvasNodeRecord = { id: uid('paper'), kind: 'paper', itemKey: item.key, title: item.title, displayName: nextDefaultTitle(), x: placement.x, y: placement.y, width: 244, height: 128, appearance: { ...DEFAULT_APPEARANCE }, titleFontSize: 14 };
+    const node = recordToNode(record, snapshot, callbacks, relationSource, Boolean(docRef.current?.showAllDetails), isConnecting);
+    commit([...nodesRef.current.map(existing => ({ ...existing, selected: false })), { ...node, selected: true }], edgesRef.current);
+    setNotice({ kind: 'success', message: '文献已加入白板。双击卡片即可命名。' });
   };
-  const addItem = (itemKey: string) => { const item = snapshot?.items.find(i => i.key === itemKey); if (item) addItems([item]); };
-  const addAll = () => addItems(reviewItems);
-  const addSelected = () => addItems(reviewItems.filter(item => reviewSelected.has(item.key)));
+  const addText = (dialog: NoteDialog) => { const record: CanvasNodeRecord = dialog.nodeId ? null as never : { id: uid(dialog.kind), kind: dialog.kind, displayName: nextDefaultTitle(), text: dialog.kind === 'text' ? dialog.text : undefined, x: dialog.point.x, y: dialog.point.y, width: dialog.kind === 'group' ? 360 : 230, height: dialog.kind === 'group' ? 220 : 120, appearance: dialog.kind === 'group' ? { borderColor: '#9388A7', borderWidth: 1.5, fillColor: '#F5F2F780' } : { borderColor: '#B79D73', borderWidth: 1.5, fillColor: '#FBF7EF' }, titleFontSize: 14 };
+    if (dialog.nodeId) { const next = nodesRef.current.map(node => node.id === dialog.nodeId ? { ...node, data: { ...node.data, record: { ...node.data.record, text: dialog.text } } } : node); commit(next, edgesRef.current); } else commit([...nodesRef.current, recordToNode(record, snapshot, callbacks, relationSource, Boolean(docRef.current?.showAllDetails), isConnecting)], edgesRef.current); setNoteDialog(null); };
+  const addImageData = async (dataUrl: string, point: Point) => { try { const result = await saveImage(dataUrl); const record: CanvasNodeRecord = { id: uid('image'), kind: 'image', imageId: result.imageId, displayName: nextDefaultTitle(), x: point.x, y: point.y, width: 280, height: 200, appearance: { ...DEFAULT_APPEARANCE }, titleFontSize: 14 }; commit([...nodesRef.current, recordToNode(record, snapshot, callbacks, relationSource, Boolean(docRef.current?.showAllDetails), isConnecting)], edgesRef.current); setNotice({ kind: 'success', message: '图片已加入白板。双击名称可编辑。' }); } catch (reason) { setError(reason instanceof Error ? reason.message : '无法添加图片'); } };
+  const readImage = async (file: File, point: Point) => { if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) { setError('仅支持 PNG、JPEG 与 WebP 图片。'); return; } if (file.size > 15 * 1024 * 1024) { setError('图片不能超过 15 MB。'); return; } const reader = new FileReader(); reader.onload = () => void addImageData(String(reader.result), point); reader.readAsDataURL(file); };
+  const onDrop = (event: DragEvent<HTMLDivElement>) => { event.preventDefault(); const point = screenToFlowPosition({ x: event.clientX, y: event.clientY }); const itemKey = event.dataTransfer.getData('text/litweave-item'); if (itemKey) { beginPaper(itemKey, point); return; } const file = event.dataTransfer.files.item(0); if (file) void readImage(file, point); };
+  const onPaste = (event: ClipboardEvent) => { if ((event.target as HTMLElement | null)?.closest('textarea,input')) return; const file = [...event.clipboardData?.files ?? []].find(candidate => candidate.type.startsWith('image/')); if (!file) return; event.preventDefault(); void readImage(file, screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 })); };
+  useEffect(() => { window.addEventListener('paste', onPaste); return () => window.removeEventListener('paste', onPaste); });
 
-  const beginEdge = (source: string, target: string) => {
-    if (source === target) { setError('The same Alias cannot connect to itself.'); return; }
-    const sourceItem = flowNodes.find(node => node.id === source)?.data as PaperNodeData | undefined; const targetItem = flowNodes.find(node => node.id === target)?.data as PaperNodeData | undefined;
-    if (!sourceItem || !targetItem || sourceItem.itemKey === targetItem.itemKey) { setError('The same Zotero item cannot connect to one of its Alias instances.'); return; }
-    setDialog({ kind: 'edge', source, target, label: 'Reference', note: '', directed: true, color: '#7C9CFF', lineStyle: 'solid' }); setRelationSource(null);
-  };
-  const onConnect = (connection: Connection) => { if (connection.source && connection.target) beginEdge(connection.source, connection.target); };
-  const saveDialog = () => {
-    if (!dialog) return;
-    if (dialog.kind === 'text') { const id = `text:${crypto.randomUUID()}`; const node: LitFlowNode = { id, type: 'textCard', position: { x: 180 + flowNodes.length * 18, y: 180 + flowNodes.length * 18 }, data: { text: dialog.text || 'Text note' }, style: { width: 220, height: 100 } }; const nextNodes = [...flowNodes, node]; recordHistory(nextNodes, flowEdges); setDialog(null); return; }
-    const edge: LitFlowEdge = { id: dialog.edgeId ?? `edge:${crypto.randomUUID()}`, source: dialog.source, target: dialog.target, label: dialog.label || '', type: 'smoothstep', markerEnd: dialog.directed ? { type: MarkerType.ArrowClosed, color: dialog.color } : undefined, style: { stroke: dialog.color, strokeWidth: 2, strokeDasharray: dialog.lineStyle === 'dashed' ? '8 5' : dialog.lineStyle === 'dotted' ? '2 6' : undefined }, labelStyle: { fill: dialog.color, fontWeight: 700 }, data: { note: dialog.note, color: dialog.color, isDirected: dialog.directed } };
-    const nextEdges = dialog.edgeId ? flowEdges.map(existing => existing.id === dialog.edgeId ? edge : existing) : addEdge(edge, flowEdges); recordHistory(flowNodes, nextEdges); setDialog(null);
-  };
-  const deleteEdge = (edgeId: string) => { const nextEdges = flowEdges.filter(edge => edge.id !== edgeId); recordHistory(flowNodes, nextEdges); setDialog(null); };
-  const removeNode = (nodeId: string) => { const nextNodes = flowNodes.filter(node => node.id !== nodeId); const nextEdges = flowEdges.filter(edge => edge.source !== nodeId && edge.target !== nodeId); recordHistory(nextNodes, nextEdges); setMenu(null); };
-  const updateEdges = (changes: EdgeChange<LitFlowEdge>[]) => { const next = applyEdgeChanges(changes, flowEdges); recordHistory(flowNodes, next); };
-  const updateNodes = (changes: NodeChange<LitFlowNode>[]) => { const next = applyNodeChanges(changes, flowNodes); recordHistory(next, flowEdges); };
-  const onNodeClick = (_event: ReactMouseEvent, node: LitFlowNode) => { setSelectedNode(node.id); setMenu(null); if (relationSource && node.type === 'paperCard') beginEdge(relationSource, node.id); };
-  const openItem = async (itemKey: string) => { await invoke('OpenZoteroItem', { itemKey }).catch((e: Error) => setError(e.message)); setMenu(null); };
-  const openPdf = async (attachmentKey: string) => { await invoke('OpenZoteroPdf', { attachmentKey }).catch((e: Error) => setError(e.message)); setMenu(null); };
-  const exportCanvas = async (format: 'json' | 'svg' | 'png') => { if (!canvasRef.current) return; if (format === 'png') { await invoke('CaptureCanvasPng', {}).catch((e: Error) => setError(e.message)); return; } const document = flowToDocument(flowNodes, flowEdges, canvasRef.current.rootCollectionKey, canvasRef.current.recursive, { x: canvasRef.current.viewportX, y: canvasRef.current.viewportY, zoom: canvasRef.current.viewportZoom }); const content = format === 'json' ? JSON.stringify(document, null, 2) : `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000"><rect width="100%" height="100%" fill="#0c101a"/>${flowNodes.filter(n => n.type !== 'collectionGroup').map(n => `<rect x="${n.position.x}" y="${n.position.y}" width="${n.style?.width ?? 220}" height="${n.style?.height ?? 150}" rx="12" fill="#182238" stroke="#7c9cff"/><text x="${n.position.x + 12}" y="${n.position.y + 28}" fill="#f5f7ff" font-family="Segoe UI, sans-serif" font-size="14">${escapeXml((n.data as PaperNodeData).item?.title ?? (n.data as { text?: string }).text ?? '')}</text>`).join('')}</svg>`; await invoke('SaveCanvasExport', { format, content, defaultName: `litweave-${selectedCollection || 'library'}` }).catch((e: Error) => setError(e.message)); };
-  const onViewportChange = (_event: unknown, viewport: { x: number; y: number; zoom: number }) => { if (canvasRef.current) { canvasRef.current.viewportX = viewport.x; canvasRef.current.viewportY = viewport.y; canvasRef.current.viewportZoom = viewport.zoom; syncCanvas(flowNodes, flowEdges, viewport); } };
-  const openRecursive = (next: boolean) => { setRecursive(next); if (snapshot) void loadCurrentCanvas(selectedCollection, next, snapshot); };
+  const isValidConnection = useCallback((connection: Connection | LitFlowEdge) => { if (!connection.source || !connection.target || connection.source === connection.target) return false; const source = nodesRef.current.find(node => node.id === connection.source); const target = nodesRef.current.find(node => node.id === connection.target); if (!source || !target) return false; return !(source.data.record.kind === 'paper' && target.data.record.kind === 'paper' && source.data.record.itemKey === target.data.record.itemKey); }, []);
+  const beginEdge = (source: string, target: string, sourceHandle?: string | null, targetHandle?: string | null) => { if (!isValidConnection({ source, target, sourceHandle: sourceHandle ?? null, targetHandle: targetHandle ?? null })) { setNotice({ kind: 'error', message: '不能把同一节点或同一文献的副本相连。' }); return; } const edge: LitFlowEdge = { id: uid('edge'), source, target, sourceHandle: sourceHandle ?? undefined, targetHandle: targetHandle ?? undefined, label: '', type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed, color: '#7182A8' }, style: { stroke: '#7182A8', strokeWidth: 2 }, labelStyle: { fill: '#7182A8', fontWeight: 650, fontSize: 11 }, data: { note: '', color: '#7182A8', isDirected: true, width: 2 } }; setRelationSource(null); setIsConnecting(false); commit(nodesRef.current, addEdge(edge, edgesRef.current)); setNotice({ kind: 'success', message: '关联已建立。双击连线可添加标签。' }); };
+  const saveEdge = () => { if (!edgeDialog) return; const edge: LitFlowEdge = { id: edgeDialog.edgeId ?? uid('edge'), source: edgeDialog.source, target: edgeDialog.target, sourceHandle: edgeDialog.sourceHandle ?? undefined, targetHandle: edgeDialog.targetHandle ?? undefined, label: edgeDialog.label, type: 'smoothstep', markerEnd: edgeDialog.directed ? { type: MarkerType.ArrowClosed, color: edgeDialog.color } : undefined, style: { stroke: edgeDialog.color, strokeWidth: edgeDialog.width, strokeDasharray: edgeDialog.lineStyle === 'dashed' ? '8 5' : edgeDialog.lineStyle === 'dotted' ? '2 6' : undefined }, labelStyle: { fill: edgeDialog.color, fontWeight: 650, fontSize: 11 }, data: { note: edgeDialog.note, color: edgeDialog.color, isDirected: edgeDialog.directed, width: edgeDialog.width } }; const next = edgeDialog.edgeId ? edgesRef.current.map(existing => existing.id === edgeDialog.edgeId ? edge : existing) : addEdge(edge, edgesRef.current); commit(nodesRef.current, next); setEdgeDialog(null); };
+  const updateNodes = (changes: NodeChange<LitFlowNode>[]) => { const next = applyNodeChanges(changes, nodesRef.current); nodesRef.current = next; setFlowNodes(next); const changed = changes.some(change => change.type !== 'select'); const dragging = changes.some(change => change.type === 'position' && change.dragging); if (changed && !dragging) commit(next, edgesRef.current); };
+  const updateEdges = (changes: EdgeChange<LitFlowEdge>[]) => { const next = applyEdgeChanges(changes, edgesRef.current); edgesRef.current = next; setFlowEdges(next); if (changes.some(change => change.type !== 'select')) commit(nodesRef.current, next); };
+  const reconnect = (oldEdge: LitFlowEdge, connection: Connection) => { if (!isValidConnection(connection)) return; commit(nodesRef.current, reconnectEdge(oldEdge, connection, edgesRef.current)); };
+  const undo = () => { const current = docRef.current; if (!current) return; const history = histories.current.get(current.id); const previous = history?.past.pop(); if (!history || !previous) return; history.future.push({ nodes: nodesRef.current, edges: edgesRef.current }); commit(previous.nodes, previous.edges, false); };
+  const redo = () => { const current = docRef.current; if (!current) return; const history = histories.current.get(current.id); const next = history?.future.pop(); if (!history || !next) return; history.past.push({ nodes: nodesRef.current, edges: edgesRef.current }); commit(next.nodes, next.edges, false); };
+  const updateAppearance = (patch: Partial<MorandiAppearance>) => { if (!selectedNodes.length) { setNotice({ kind: 'info', message: '请先选择一个或多个图框。' }); return; } const ids = new Set(selectedNodes.map(node => node.id)); const next = nodesRef.current.map(node => ids.has(node.id) ? { ...node, data: { ...node.data, record: { ...node.data.record, appearance: { ...DEFAULT_APPEARANCE, ...(node.data.record.appearance ?? {}), ...patch } } } } : node); commit(next, edgesRef.current); };
+  const updateTitleFontSize = (size: number) => { if (!selectedNodes.length) { setNotice({ kind: 'info', message: '请先选择一个或多个图框。' }); return; } const ids = new Set(selectedNodes.map(node => node.id)); const next = nodesRef.current.map(node => ids.has(node.id) ? { ...node, data: { ...node.data, record: { ...node.data.record, titleFontSize: size } } } : node); commit(next, edgesRef.current); };
+  const toggleAllDetails = () => { const current = docRef.current; if (!current) return; const nextDocument = { ...current, showAllDetails: !current.showAllDetails, updatedAt: new Date().toISOString() }; docRef.current = nextDocument; saveRevision.current += 1; setDocument(nextDocument); const nextNodes = nodesRef.current.map(node => ({ ...node, data: { ...node.data, showAllDetails: nextDocument.showAllDetails } })); nodesRef.current = nextNodes; setFlowNodes(nextNodes); };
+  const chooseWorkspace = async () => { const proposed = window.prompt('保存目录', workspacePath); if (!proposed?.trim()) return; try { const result = await setWorkspaceDirectory(proposed.trim()); setWorkspacePath(result.path); setNotice({ kind: 'success', message: '保存目录已更新。' }); await flushSave(); } catch (reason) { setError(reason instanceof Error ? reason.message : '无法设置保存目录'); } };
+  const renameBoard = () => { if (!document) return; const name = window.prompt('白板名称', document.name); if (name?.trim()) { const next = { ...document, name: name.trim() }; docRef.current = next; setDocument(next); setBoards(previous => previous.map(board => board.id === next.id ? { ...board, name: next.name } : board)); } };
+  const closeBoard = async (id: string, event?: MouseEvent) => { event?.stopPropagation(); if (!await flushSave()) return; const nextOpen = openBoardIds.filter(boardId => boardId !== id); if (id === activeBoardId) { const replacement = nextOpen[0]; if (replacement) await switchBoard(replacement); else { setActiveBoardId(null); setDocument(null); setFlowNodes([]); setFlowEdges([]); } } setOpenBoardIds(nextOpen); };
+  const removeNode = (id: string) => { const nextNodes = nodesRef.current.filter(node => node.id !== id); const nextEdges = edgesRef.current.filter(edge => edge.source !== id && edge.target !== id); commit(nextNodes, nextEdges); setMenu(null); };
+  const copyPaper = (id: string) => { const original = nodesRef.current.find(node => node.id === id); if (!original) return; const record = { ...original.data.record, id: uid('paper'), displayName: nextDefaultTitle(), x: original.position.x + 34, y: original.position.y + 34 }; commit([...nodesRef.current, recordToNode(record, snapshot, callbacks, relationSource, Boolean(docRef.current?.showAllDetails), isConnecting)], edgesRef.current); setMenu(null); };
+  const exportBoard = async (format: 'litweave' | 'json' | 'svg' | 'png' | 'pdf') => { const current = docRef.current; if (!current) return; const name = current.name.replace(/[\\/:*?"<>|]/g, '-'); if (format === 'json' || format === 'litweave') { await invoke('SaveCanvasExport', { format, document: current, defaultName: name }); return; } const svg = await makeSvg(current); if (format === 'svg') { await invoke('SaveCanvasExport', { format, content: svg, defaultName: name }); return; } if (format === 'pdf') { await invoke('ExportCanvasPdf', { svg, defaultName: name }); return; } const image = new Image(); const blob = new Blob([svg], { type: 'image/svg+xml' }); const url = URL.createObjectURL(blob); image.onload = async () => { const canvas = window.document.createElement('canvas'); canvas.width = image.width * 2; canvas.height = image.height * 2; const context = canvas.getContext('2d'); context?.scale(2, 2); context?.drawImage(image, 0, 0); URL.revokeObjectURL(url); await invoke('SaveCanvasExport', { format, content: canvas.toDataURL('image/png'), defaultName: name }); }; image.src = url; };
+  const makeSvg = async (current: CanvasDocument) => { const nodes = current.nodes; const minX = Math.min(0, ...nodes.map(node => node.x)) - 36; const minY = Math.min(0, ...nodes.map(node => node.y)) - 36; const maxX = Math.max(960, ...nodes.map(node => node.x + node.width)) + 36; const maxY = Math.max(620, ...nodes.map(node => node.y + node.height)) + 36; const images = new Map<string, string>(); await Promise.all(nodes.filter(node => node.imageId).map(async node => { try { images.set(node.imageId!, (await getImageData(node.imageId!)).dataUrl); } catch { /* missing image remains marked */ } })); const nodeById = new Map(nodes.map(node => [node.id, node])); const escape = (value: string) => value.replace(/[<>&'"]/g, char => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' }[char] ?? char)); const body = current.edges.map(edge => { const source = nodeById.get(edge.source); const target = nodeById.get(edge.target); if (!source || !target) return ''; const x1 = source.x + source.width / 2 - minX; const y1 = source.y + source.height / 2 - minY; const x2 = target.x + target.width / 2 - minX; const y2 = target.y + target.height / 2 - minY; return `<path d="M ${x1} ${y1} L ${x2} ${y2}" fill="none" stroke="${edge.color}" stroke-width="${edge.width ?? 2}" ${edge.lineStyle === 'dashed' ? 'stroke-dasharray="8 5"' : edge.lineStyle === 'dotted' ? 'stroke-dasharray="2 6"' : ''}/><text x="${(x1 + x2) / 2}" y="${(y1 + y2) / 2 - 6}" fill="${edge.color}" font-size="12">${escape(edge.label ?? '')}</text>`; }).join('') + nodes.map(node => { const ap = node.appearance ?? DEFAULT_APPEARANCE; const x = node.x - minX; const y = node.y - minY; const base = `<rect x="${x}" y="${y}" width="${node.width}" height="${node.height}" rx="14" fill="${ap.fillColor}" stroke="${ap.borderColor}" stroke-width="${ap.borderWidth}"/>`; if (node.kind === 'image') return `${base}${images.get(node.imageId ?? '') ? `<image href="${images.get(node.imageId ?? '')}" x="${x + 7}" y="${y + 7}" width="${node.width - 14}" height="${node.height - 32}" preserveAspectRatio="xMidYMid meet"/>` : ''}<text x="${x + 12}" y="${y + node.height - 11}" fill="#292D37" font-size="12">${escape(node.displayName ?? 'Image')}</text>`; return `${base}<text x="${x + 13}" y="${y + 28}" fill="#292D37" font-size="14" font-weight="600">${escape(node.displayName ?? node.text ?? '')}</text>${node.kind === 'text' ? `<text x="${x + 13}" y="${y + 50}" fill="#505767" font-size="11">${escape(node.text ?? '')}</text>` : ''}`; }).join(''); return `<svg xmlns="http://www.w3.org/2000/svg" width="${maxX - minX}" height="${maxY - minY}" viewBox="0 0 ${maxX - minX} ${maxY - minY}"><rect width="100%" height="100%" fill="#FBFBFC"/>${body}</svg>`; };
+  const moveTab = (sourceId: string, targetId: string) => { if (sourceId === targetId) return; setOpenBoardIds(previous => { const next = [...previous]; const source = next.indexOf(sourceId); const target = next.indexOf(targetId); if (source < 0 || target < 0) return previous; next.splice(source, 1); next.splice(target, 0, sourceId); return next; }); };
+  const resizeSidebar = (event: ReactPointerEvent<HTMLDivElement>) => { if (!resizingPane) return; const parent = event.currentTarget.parentElement; if (!parent) return; const bounds = parent.getBoundingClientRect(); setCollectionPane(Math.max(22, Math.min(72, ((event.clientY - bounds.top) / bounds.height) * 100))); };
+  const alignSelected = (axis: 'x' | 'y') => { if (selectedNodes.length < 2) { setNotice({ kind: 'info', message: '请选择至少两个图框后对齐。' }); return; } const coordinate = axis === 'x' ? Math.min(...selectedNodes.map(node => node.position.x)) : Math.min(...selectedNodes.map(node => node.position.y)); const ids = new Set(selectedNodes.map(node => node.id)); const next = nodesRef.current.map(node => ids.has(node.id) ? { ...node, position: axis === 'x' ? { ...node.position, x: coordinate } : { ...node.position, y: coordinate } } : node); commit(next, edgesRef.current); };
+  const adjustLayer = (front: boolean) => { if (!selectedNodes.length) return; const values = nodesRef.current.map(node => node.zIndex ?? 1); const layer = front ? Math.max(...values) + 1 : Math.min(...values) - 1; const ids = new Set(selectedNodes.map(node => node.id)); const next = nodesRef.current.map(node => ids.has(node.id) ? { ...node, zIndex: layer } : node); commit(next, edgesRef.current); };
+  const renderCollection = (collection: ZoteroCollection, depth: number): ReactNode => { const children = childMap.get(collection.key) ?? []; const isOpen = expanded.has(collection.key); return <div key={collection.key}><button className={`collection-row ${selectedCollection === collection.key ? 'active' : ''}`} style={{ paddingLeft: 14 + depth * 16 }} onClick={() => setSelectedCollection(collection.key)}><span className="tree-toggle" onClick={event => { event.stopPropagation(); setExpanded(previous => { const next = new Set(previous); next.has(collection.key) ? next.delete(collection.key) : next.add(collection.key); return next; }); }}>{children.length ? isOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} /> : <span />}</span><FolderOpen size={14} /><span>{collection.name}</span><small>{collection.itemCount ?? ''}</small></button>{isOpen && children.map(child => renderCollection(child, depth + 1))}</div>; };
 
   return <div className="app-shell" onClick={() => { if (menu) setMenu(null); }}>
-    <aside className="sidebar">
-      <div className="brand"><div className="brand-mark"><GitBranch size={19} /></div><div><div className="brand-name">LitWeave</div><div className="brand-subtitle">Visual Literature Mapping</div></div><span className="version">v0.1</span></div>
-      <div className="search-box"><Search size={16} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder={t('search')} /><kbd>⌘ K</kbd></div>
-      <div className="sidebar-scroll">
-        <div className="section-heading"><span>{t('collections')}</span><span className="muted-count">{collections.length}</span></div>
-        <button className={`library-row ${!selectedCollection ? 'active' : ''}`} onClick={() => setCollection('')}><BookOpen size={16} /><span>{t('library')}</span><span className="collection-count">{snapshot?.items.length ?? ''}</span></button>
-        <div className="collection-tree">{(childMap.get('__root__') ?? []).map(collection => renderCollection(collection, 0))}</div>
-        {!snapshot && <div className="empty-sidebar"><Zap size={18} /><div>{t('offline')}</div><small>{t('emptyBody')}</small></div>}
+    <aside className="sidebar"><div className="brand"><img src="/litweave-mark.svg" alt="" /><div><strong>LitWeave</strong><span>Research whiteboards</span></div><small>v0.2.1-beta.1</small></div><div className="sidebar-search"><Search size={15} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索文献…" /><button className={searchAll ? 'active' : ''} onClick={() => setSearchAll(value => !value)} title="切换当前文件夹 / 全部文库">{searchAll ? '全部' : '当前'}</button></div>
+      <div className="sidebar-main">
+        <section className="collection-section" style={{ flexBasis: `${collectionPane}%` }}><div className="section-title"><span>文件夹</span><label><input type="checkbox" checked={recursive} onChange={event => setRecursive(event.target.checked)} />含子文件夹</label></div><button className={`collection-row library-row ${!selectedCollection ? 'active' : ''}`} onClick={() => setSelectedCollection('')}><BookOpen size={14} /><span>全部文库</span><small>{snapshot?.items.length ?? '—'}</small></button><div className="collection-scroll">{(childMap.get('__root__') ?? []).map(collection => renderCollection(collection, 0))}</div></section>
+        <div className={`sidebar-splitter ${resizingPane ? 'dragging' : ''}`} onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); setResizingPane(true); }} onPointerMove={resizeSidebar} onPointerUp={() => setResizingPane(false)} onPointerCancel={() => setResizingPane(false)} />
+        <section className="paper-section"><div className="section-title"><span>{selectedCollection ? collectionMap.get(selectedCollection)?.name ?? '当前文件夹' : '全部文献'}</span><small>{visibleItems.length}</small></div><div className="paper-list">{visibleItems.slice(0, 250).map(item => <div className="library-paper" key={item.key} draggable onDragStart={event => event.dataTransfer.setData('text/litweave-item', item.key)} onDoubleClick={() => beginPaper(item.key, { x: 120, y: 110 })}><BookOpen size={14} /><div><strong title={item.title}>{item.title}</strong><span>{itemName(item)} · {item.year || '—'}</span></div><Plus size={13} /></div>)}{snapshot && !visibleItems.length && <p className="empty-list">没有匹配文献</p>}{!snapshot && <p className="empty-list">刷新 Zotero 后显示文献</p>}</div></section>
       </div>
-      <div className="sidebar-footer">
-        <button className="refresh-button" onClick={handleRefresh} disabled={isRefreshing}><RefreshCw size={16} className={isRefreshing ? 'spin' : ''} /><span>{isRefreshing ? t('refreshing') : t('refresh')}</span></button>
-        <div className={`zotero-status ${status?.apiEnabled ? 'online' : 'offline'}`}><span className="status-dot" /><span>{status?.apiEnabled ? t('ready') : t('offline')}</span><span className="status-detail" title={status?.message}>{status?.apiEnabled ? 'API v3' : '—'}</span></div>
-        <div className="last-refresh">{t('lastRefresh')}: {lastRefresh ? new Date(lastRefresh).toLocaleString(language) : '—'}</div>
-        <div className="sidebar-actions"><button onClick={() => setLanguage(language === 'zh-CN' ? 'en-US' : 'zh-CN')} title={t('language')}><Languages size={15} />{language}</button><button onClick={() => setError(t('aiOff'))} title={t('aiOff')}><Settings2 size={15} /></button></div>
-      </div>
+      <div className="sidebar-footer"><button className="refresh-button" onClick={handleRefresh} disabled={isRefreshing}><RefreshCw size={15} className={isRefreshing ? 'spin' : ''} />{isRefreshing ? '刷新中…' : '刷新 Zotero'}</button><button className={`connection-status ${status?.apiEnabled ? 'online' : 'offline'}`} onClick={() => void checkConnection()}>{status?.apiEnabled ? <Wifi size={14} /> : <WifiOff size={14} />}<span>{status?.apiEnabled ? 'Zotero 已连接' : 'Zotero 未连接'}</span></button><small>上次刷新：{lastRefresh ? new Date(lastRefresh).toLocaleString('zh-CN') : '—'}</small></div>
     </aside>
-    <main className="workspace">
-      <header className="workspace-header"><div className="scope-title"><span className="eyebrow">{selectedCollection ? t('collections') : t('libraryScope')}</span><h1>{selectedCollection ? getName(collectionMap.get(selectedCollection), selectedCollection) : t('library')}</h1></div><div className="header-actions"><label className="toggle"><input type="checkbox" checked={recursive} onChange={event => openRecursive(event.target.checked)} /><span className="toggle-track" /><span>{recursive ? t('recursive') : t('direct')}</span></label><button className="ghost-button" onClick={() => setDialog({ kind: 'text', text: '' })}><StickyNote size={16} />{t('note')}</button><div className="export-menu"><button className="ghost-button" onClick={() => void exportCanvas('svg')}><Upload size={16} />{t('export')}</button><button className="icon-button" onClick={() => void exportCanvas('json')} title={t('exportJson')}><MoreHorizontal size={17} /></button><button className="icon-button" onClick={() => void exportCanvas('png')} title="PNG">PNG</button></div></div></header>
-      <div className="canvas-toolbar"><div className="canvas-stats"><span>{flowNodes.filter(n => n.type === 'paperCard').length} {t('allItems')}</span><span>{flowNodes.filter(n => n.type === 'collectionGroup').length} {t('collectionsCount')}</span><span className="canvas-saved"><span className="status-dot" />{t('saved')}</span></div><div className="canvas-hint"><GitBranch size={14} />{relationSource ? t('relationHint') : t('connect')}</div><button className="icon-button" onClick={undo} disabled={!past.current.length} title="Undo"><Undo2 size={16} /></button><button className="icon-button" onClick={redo} disabled={!future.current.length} title="Redo"><Redo2 size={16} /></button><button className="icon-button" onClick={() => fitView({ padding: 0.18, duration: 300 })} title="Fit view"><Maximize2 size={16} /></button></div>
-      <div className="canvas-area" onDoubleClick={event => { const target = event.target as HTMLElement; if (target.closest('.react-flow__pane')) setDialog({ kind: 'text', text: '' }); }} onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); const itemKey = event.dataTransfer.getData('text/litweave-item'); if (itemKey) addItem(itemKey); }}><ReactFlow nodes={flowNodes} edges={flowEdges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={updateNodes} onEdgesChange={updateEdges} onConnect={onConnect} onNodeClick={onNodeClick} onNodeContextMenu={(event, node) => { if (node.type === 'paperCard') onPaperContextMenu(event, node as Node<PaperNodeData>); }} onEdgeDoubleClick={(_event, edge) => { const record = canvasRef.current?.edges.find(item => item.id === edge.id); setDialog({ kind: 'edge', edgeId: edge.id, source: edge.source, target: edge.target, label: record?.label ?? String(edge.label ?? ''), note: record?.note ?? '', directed: record?.isDirected ?? true, color: record?.color ?? '#7C9CFF', lineStyle: record?.lineStyle ?? 'solid' }); }} onPaneClick={() => { if (relationSource) setRelationSource(null); setMenu(null); }} onMoveEnd={onViewportChange} fitView={false} minZoom={0.08} maxZoom={2.5} proOptions={{ hideAttribution: true }}><Background color="#22314d" gap={28} size={1} /><Controls position="bottom-right" showInteractive={false} /><MiniMap nodeStrokeColor="#7c9cff" nodeColor="#182238" maskColor="rgba(12,16,26,.72)" /></ReactFlow>{!canvas && <div className="canvas-empty"><div className="empty-orb"><GitBranch size={28} /></div><h2>{t('emptyTitle')}</h2><p>{t('emptyBody')}</p><button className="refresh-button" onClick={handleRefresh}><RefreshCw size={16} />{t('refresh')}</button></div>}</div>
-      <div className={`review-tray ${reviewOpen ? 'open' : 'closed'}`}><button className="review-header" onClick={() => setReviewOpen(open => !open)}><div><RefreshCw size={15} /><span>{t('review')}</span><span className="review-count">{reviewItems.length}</span></div>{reviewOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</button>{reviewOpen && <div className="review-body">{reviewItems.length ? <><div className="review-summary"><span>{reviewItems.length} {t('newItems')} · {lastDiff?.updatedItemKeys.length ?? 0} {t('updatedItems')} · {lastDiff?.removedItemKeys.length ?? 0} {t('removedItems')}</span><div className="review-summary-actions"><button onClick={addSelected} disabled={!reviewSelected.size}>{reviewSelected.size ? `${t('add')} ${reviewSelected.size}` : t('select')}</button><button onClick={addAll}>{t('addAll')}</button></div></div><div className="review-list">{reviewItems.slice(0, 30).map(item => <div className="review-item" key={item.key} draggable onDragStart={event => event.dataTransfer.setData('text/litweave-item', item.key)}><input type="checkbox" checked={reviewSelected.has(item.key)} onChange={event => setReviewSelected(previous => { const next = new Set(previous); if (event.target.checked) next.add(item.key); else next.delete(item.key); return next; })} /><div><strong title={item.title}>{item.title}</strong><small>{item.firstAuthor || '—'} · {item.year || '—'}</small></div><button onClick={() => addItem(item.key)}>{t('add')}</button></div>)}</div></> : <div className="review-empty"><span>{t('noNew')}</span>{snapshot && <small>{t('baseline')}</small>}</div>}</div>}</div>
+    <main className="workspace"><header className="board-tabs"><button className="tab-add" onClick={() => void newBoard()} title="新建白板"><Plus size={18} /></button>{openBoardIds.map(id => { const summary = boards.find(board => board.id === id); return <button draggable className={`board-tab ${id === activeBoardId ? 'active' : ''}`} key={id} onDragStart={event => event.dataTransfer.setData('text/litweave-board', id)} onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); moveTab(event.dataTransfer.getData('text/litweave-board'), id); }} onClick={() => void switchBoard(id)}><span>{summary?.name ?? document?.name ?? 'Untitled board'}</span><X size={13} onClick={event => void closeBoard(id, event)} /></button>; })}<button className="tab-library" onClick={() => setBoardPicker(value => !value)}><MoreHorizontal size={17} />我的白板</button>{boardPicker && <div className="board-picker">{boards.map(board => <button key={board.id} onClick={() => { void switchBoard(board.id); setBoardPicker(false); }}><span>{board.name}</span>{board.isLegacy && <small>旧版</small>}</button>)}</div>}</header>
+      <header className="workspace-header"><div><span className="eyebrow">研究白板</span><h1>{document?.name ?? '没有打开的白板'}</h1></div><div className="header-actions"><button className="ghost-button" onClick={() => void flushSave()} disabled={!document}>保存 Ctrl+S</button><button className="ghost-button" onClick={renameBoard} disabled={!document}><Pencil size={15} />重命名</button><button className="ghost-button" onClick={() => fileInput.current?.click()} disabled={!document}><ImagePlus size={15} />图片</button><input ref={fileInput} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event: ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; if (file) void readImage(file, { x: 160, y: 120 }); event.target.value = ''; }} /><button className="ghost-button" onClick={() => void exportBoard('pdf')} disabled={!document}>PDF</button><button className="ghost-button" onClick={() => void exportBoard('png')} disabled={!document}>PNG</button><button className="ghost-button" onClick={() => void exportBoard('litweave')} disabled={!document}>导出源文件</button><button className="ghost-button" onClick={() => void importBoard()}>导入源文件</button><button className="ghost-button" onClick={() => void chooseWorkspace()} title={workspacePath}><Settings2 size={15} />目录</button></div></header>
+      <div className="board-toolbar"><span className={`save-state ${saveState}`}>{saveState === 'saving' ? '保存中…' : saveState === 'error' ? '保存异常' : '已保存'}</span><span>{flowNodes.length} 个图框 · {flowEdges.length} 条关联</span><div className="toolbar-rule" /><Palette size={15} /><div className="palette">{MORANDI.map(color => <button key={color.name} title={color.name} className="palette-dot" style={{ background: color.value }} onClick={() => updateAppearance({ borderColor: color.value, fillColor: color.fill })} />)}</div><select aria-label="边框粗细" defaultValue="1.5" onChange={event => updateAppearance({ borderWidth: Number(event.target.value) })}><option value="1">细边框</option><option value="1.5">标准边框</option><option value="3">加粗边框</option><option value="5">强调边框</option></select><label className="font-control">标题 {selectedNodes.length ? `${Math.round(selectedNodes[0].data.record.titleFontSize ?? 14)} px` : '—'}<input aria-label="标题字号" type="range" min="10" max="36" step="1" value={selectedNodes[0]?.data.record.titleFontSize ?? 14} disabled={!selectedNodes.length} onChange={event => updateTitleFontSize(Number(event.target.value))} /></label><button className={document?.showAllDetails ? 'armed' : ''} onClick={toggleAllDetails} disabled={!document}>{document?.showAllDetails ? '收起详情' : '显示全部详情'}</button><button title="左对齐选中图框" onClick={() => alignSelected('x')}>左对齐</button><button title="顶端对齐选中图框" onClick={() => alignSelected('y')}>顶对齐</button><button title="置于顶层" onClick={() => adjustLayer(true)}>置顶</button><button title="置于底层" onClick={() => adjustLayer(false)}>置底</button><div className="toolbar-spacer" /><button className={relationSource ? 'armed' : ''} onClick={() => relationSource ? setRelationSource(null) : selectedNodes[0] && setRelationSource(selectedNodes[0].id)}><GitBranch size={15} />{relationSource ? '取消关联' : '建立关联'}</button><button onClick={undo}><Undo2 size={15} /></button><button onClick={redo}><Redo2 size={15} /></button><button onClick={() => void fitView({ padding: 0.18, duration: 250 })}><Maximize2 size={15} /></button></div>
+      <div className="canvas-area" onDragOver={event => event.preventDefault()} onDrop={onDrop} onContextMenu={event => { event.preventDefault(); setMenu({ x: event.clientX, y: event.clientY, point: screenToFlowPosition({ x: event.clientX, y: event.clientY }) }); }}>
+        {document && <ReactFlow nodes={flowNodes} edges={flowEdges} nodeTypes={nodeTypes} fitView={false} nodesConnectable connectOnClick connectionMode={ConnectionMode.Loose} connectionRadius={42} connectionDragThreshold={2} isValidConnection={isValidConnection} onNodesChange={updateNodes} onEdgesChange={updateEdges} onConnectStart={(_event, connection) => { connectionStart.current = { nodeId: connection.nodeId, handleId: connection.handleId }; setIsConnecting(true); }} onConnectEnd={(event, state: { isValid?: boolean | null }) => { setIsConnecting(false); const source = connectionStart.current; connectionStart.current = null; if (state.isValid || !source?.nodeId) return; const point = 'changedTouches' in event && event.changedTouches?.[0] ? event.changedTouches[0] : event as unknown as { clientX: number; clientY: number }; const element = globalThis.document.elementFromPoint(point.clientX, point.clientY)?.closest('.react-flow__node') as HTMLElement | null; const target = element?.dataset.id; if (!target || target === source.nodeId) return; const sourceNode = nodesRef.current.find(node => node.id === source.nodeId); const targetNode = nodesRef.current.find(node => node.id === target); if (!sourceNode || !targetNode) return; const dx = sourceNode.position.x + Number(sourceNode.style?.width ?? 0) / 2 - (targetNode.position.x + Number(targetNode.style?.width ?? 0) / 2); const dy = sourceNode.position.y + Number(sourceNode.style?.height ?? 0) / 2 - (targetNode.position.y + Number(targetNode.style?.height ?? 0) / 2); const targetHandle = Math.abs(dx) > Math.abs(dy) ? `anchor-${dx > 0 ? 'right' : 'left'}` : `anchor-${dy > 0 ? 'bottom' : 'top'}`; beginEdge(source.nodeId, target, source.handleId, targetHandle); }} onConnect={connection => connection.source && connection.target && beginEdge(connection.source, connection.target, connection.sourceHandle, connection.targetHandle)} onReconnect={reconnect} onNodeClick={(_event, node) => { if (relationSource && node.id !== relationSource) beginEdge(relationSource, node.id); }} onNodeDoubleClick={(_event, node) => { if (node.data.record.kind === 'paper' || node.data.record.kind === 'group') { const name = window.prompt('显示名称', node.data.record.displayName); if (name?.trim()) { const next = nodesRef.current.map(candidate => candidate.id === node.id ? { ...candidate, data: { ...candidate.data, record: { ...candidate.data.record, displayName: name.trim() } } } : candidate); commit(next, edgesRef.current); } } }} onNodeContextMenu={(event, node) => { event.preventDefault(); event.stopPropagation(); setMenu({ x: event.clientX, y: event.clientY, nodeId: node.id }); }} onMoveEnd={(_event, viewport) => { viewportRef.current = viewport; if (docRef.current) { const next = { ...docRef.current, viewportX: viewport.x, viewportY: viewport.y, viewportZoom: viewport.zoom }; docRef.current = next; setDocument(next); } }} onPaneClick={() => { setMenu(null); setIsConnecting(false); if (relationSource) setRelationSource(null); }} minZoom={0.08} maxZoom={2.5} proOptions={{ hideAttribution: true }}><Background color="#DDE1E9" gap={28} size={1} /><Controls position="bottom-right" showInteractive={false} /><MiniMap nodeColor="#FFFFFF" nodeStrokeColor="#7182A8" maskColor="rgba(250,250,252,.76)" /></ReactFlow>}
+        {document && !flowNodes.length && <div className="canvas-empty"><div><BookOpen size={26} /></div><h2>从左侧拖入文献，开始整理想法</h2><p>也可以右键插入文字或分组框，直接粘贴图片，或拖入本地图片。</p></div>}
+      </div>
     </main>
-    {filteredItems.length > 0 && query.trim() && <div className="search-results"><div className="search-results-heading"><Search size={14} />{filteredItems.length} {t('allItems')}</div>{filteredItems.slice(0, 18).map(item => <button key={item.key} onClick={() => addItem(item.key)}><div><strong>{item.title}</strong><small>{item.firstAuthor || '—'} · {item.year || '—'}</small></div><Plus size={15} /></button>)}</div>}
-    {menu && <div className="context-menu" style={{ left: Math.min(menu.x, window.innerWidth - 268), top: Math.min(menu.y, window.innerHeight - 260) }} onClick={event => event.stopPropagation()}>{menu.itemKey && <><button onClick={() => void openItem(menu.itemKey!)}><FolderOpen size={15} />{t('openItem')}</button>{(snapshot?.items.find(item => item.key === menu.itemKey)?.attachments ?? []).filter(a => a.isPdf || a.contentType === 'application/pdf').map(attachment => <button key={attachment.key} onClick={() => void openPdf(attachment.key)}><BookOpen size={15} />{t('openPdf')}{(snapshot?.items.find(item => item.key === menu.itemKey)?.attachments ?? []).filter(a => a.isPdf || a.contentType === 'application/pdf').length > 1 ? ` · ${attachment.title || attachment.key}` : ''}</button>)}{!(snapshot?.items.find(item => item.key === menu.itemKey)?.attachments ?? []).some(a => a.isPdf || a.contentType === 'application/pdf') && <button className="disabled-menu" disabled><BookOpen size={15} />{t('noPdf')}</button>}<div className="menu-divider" /><button onClick={() => { setRelationSource(menu.nodeId); setSelectedNode(menu.nodeId); setMenu(null); setError(t('relationHint')); }}><GitBranch size={15} />{t('addRelation')}</button><button onClick={() => { setDialog({ kind: 'text', text: '' }); setMenu(null); }}><StickyNote size={15} />{t('addText')}</button><button className="danger-menu" onClick={() => removeNode(menu.nodeId)}><Trash2 size={15} />{t('remove')}</button></>}</div>}
-    {error && <div className="toast-error"><span>{error}</span><button onClick={() => setError(null)}><X size={15} /></button></div>}
-    {dialog && <div className="modal-backdrop" onClick={() => setDialog(null)}><div className="modal" onClick={event => event.stopPropagation()}><div className="modal-header"><h3>{dialog.kind === 'edge' ? t('addEdge') : t('addText')}</h3><button className="icon-button" onClick={() => setDialog(null)}><X size={16} /></button></div>{dialog.kind === 'edge' ? <><label>{t('edgeLabel')}<input autoFocus value={dialog.label} onChange={event => setDialog({ ...dialog, label: event.target.value })} /></label><label>{t('edgeNote')}<textarea value={dialog.note} onChange={event => setDialog({ ...dialog, note: event.target.value })} rows={3} /></label><div className="modal-grid"><label className="toggle"><input type="checkbox" checked={dialog.directed} onChange={event => setDialog({ ...dialog, directed: event.target.checked })} /><span className="toggle-track" /><span>{t('directed')}</span></label><label>{t('solid')}<select value={dialog.lineStyle} onChange={event => setDialog({ ...dialog, lineStyle: event.target.value as 'solid' | 'dashed' | 'dotted' })}><option value="solid">{t('solid')}</option><option value="dashed">{t('dashed')}</option><option value="dotted">{t('dotted')}</option></select></label><label>{t('edgeColor')}<input className="color-input" type="color" value={dialog.color} onChange={event => setDialog({ ...dialog, color: event.target.value })} /></label></div></> : <label>{t('addText')}<textarea autoFocus value={dialog.text} onChange={event => setDialog({ ...dialog, text: event.target.value })} rows={5} /></label>}<div className="modal-actions">{dialog.kind === 'edge' && dialog.edgeId && <button className="danger-button" onClick={() => deleteEdge(dialog.edgeId!)}>{t('deleteEdge')}</button>}<button className="ghost-button" onClick={() => setDialog(null)}>{t('cancel')}</button><button className="refresh-button" onClick={saveDialog}>{t('save')}</button></div></div></div>}
+    {menu && <div className="context-menu" style={{ left: Math.min(menu.x, window.innerWidth - 270), top: Math.min(menu.y, window.innerHeight - 250) }} onClick={event => event.stopPropagation()}>{menu.nodeId ? <>{(() => { const node = nodesRef.current.find(candidate => candidate.id === menu.nodeId); const item = node?.data.item; return <>{item && <button onClick={() => void invoke('OpenZoteroItem', { itemKey: item.key })}><FolderOpen size={15} />在 Zotero 中定位</button>}{item?.attachments.filter(attachment => attachment.isPdf || attachment.contentType === 'application/pdf').map(attachment => <button key={attachment.key} onClick={() => void invoke('OpenZoteroPdf', { attachmentKey: attachment.key })}><BookOpen size={15} />打开 PDF{item.attachments.length > 1 ? ` · ${attachment.title || attachment.key}` : ''}</button>)}{node?.data.record.kind === 'paper' && <button onClick={() => copyPaper(menu.nodeId!)}><Copy size={15} />创建副本</button>}<button onClick={() => { setRelationSource(menu.nodeId!); setMenu(null); }}><GitBranch size={15} />建立关联</button><div className="menu-divider" /><button className="danger-menu" onClick={() => removeNode(menu.nodeId!)}><Trash2 size={15} />从白板移除</button></>; })()}</> : <><button onClick={() => { if (menu.point) addText({ point: menu.point, text: '', kind: 'text' }); setMenu(null); }}><StickyNote size={15} />插入文本框</button><button onClick={() => { if (menu.point) addText({ point: menu.point, text: '', kind: 'group' }); setMenu(null); }}><FolderOpen size={15} />插入分组框</button></>}</div>}
+    {pinnedItem && <aside className="pinned-details"><button onClick={() => setPinnedNodeId(null)}><X size={15} /></button><span>文献详情</span><h3>{pinnedItem.title}</h3><dl>{[['第一作者', itemName(pinnedItem)], ['通讯作者', pinnedItem.correspondingAuthor], ['第一单位', pinnedItem.firstAffiliation], ['年份', pinnedItem.year], ['期刊', pinnedItem.publicationTitle], ['DOI', pinnedItem.doi]].filter(([, value]) => Boolean(value)).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>{pinnedItem.abstractNote && <p>{pinnedItem.abstractNote}</p>}</aside>}
+    {imagePreview && <div className="image-preview-backdrop" onClick={() => setImagePreview(null)}><div className="image-preview" onClick={event => event.stopPropagation()}><button onClick={() => setImagePreview(null)}><X size={17} /></button><img src={imageUrl(imagePreview)} alt="Whiteboard image preview" /></div></div>}
+    {noteDialog && <div className="modal-backdrop" onClick={() => setNoteDialog(null)}><form className="modal compact-modal" onClick={event => event.stopPropagation()} onSubmit={event => { event.preventDefault(); addText(noteDialog); }}><div className="modal-header"><h3>{noteDialog.kind === 'group' ? '分组名称' : '插入文本框'}</h3><button type="button" onClick={() => setNoteDialog(null)}><X size={16} /></button></div><label>{noteDialog.kind === 'group' ? '名称' : '内容'}<textarea autoFocus rows={noteDialog.kind === 'group' ? 2 : 5} value={noteDialog.text} onChange={event => setNoteDialog({ ...noteDialog, text: event.target.value })} /></label><div className="modal-actions"><button type="button" className="ghost-button" onClick={() => setNoteDialog(null)}>取消</button><button className="primary-button">插入</button></div></form></div>}
+    {edgeDialog && <div className="modal-backdrop" onClick={() => setEdgeDialog(null)}>
+      <div className="modal edge-modal" onClick={event => event.stopPropagation()}>
+        <div className="modal-header"><h3>关联标签</h3><button onClick={() => setEdgeDialog(null)}><X size={16} /></button></div>
+        <input autoFocus value={edgeDialog.label} onChange={event => setEdgeDialog({ ...edgeDialog, label: event.target.value })} placeholder="例如：引用、支持、对比…" />
+        <div className="edge-options">
+          <label>颜色<select value={edgeDialog.color} onChange={event => setEdgeDialog({ ...edgeDialog, color: event.target.value })}>{MORANDI.map(color => <option key={color.value} value={color.value}>{color.name}</option>)}</select></label>
+          <label>线型<select value={edgeDialog.lineStyle} onChange={event => setEdgeDialog({ ...edgeDialog, lineStyle: event.target.value as EdgeDialog['lineStyle'] })}><option value="solid">实线</option><option value="dashed">虚线</option><option value="dotted">点线</option></select></label>
+          <label>粗细<select value={edgeDialog.width} onChange={event => setEdgeDialog({ ...edgeDialog, width: Number(event.target.value) })}><option value="1">细</option><option value="2">标准</option><option value="4">粗</option></select></label>
+        </div>
+        <textarea value={edgeDialog.note} onChange={event => setEdgeDialog({ ...edgeDialog, note: event.target.value })} placeholder="详细备注（可选）" rows={3} />
+        <label className="directed-option"><input type="checkbox" checked={edgeDialog.directed} onChange={event => setEdgeDialog({ ...edgeDialog, directed: event.target.checked })} />显示箭头</label>
+        <div className="modal-actions"><button className="ghost-button" onClick={() => setEdgeDialog(null)}>取消</button><button className="primary-button" onClick={saveEdge}>保存关联</button></div>
+      </div>
+    </div>}
+    {notice && <div className={`toast ${notice.kind}`}><span>{notice.message}</span><button onClick={() => setNotice(null)}><X size={14} /></button></div>}{error && <div className="toast error"><CircleAlert size={15} /><span>{error}</span><button onClick={() => setError(null)}><X size={14} /></button></div>}
   </div>;
 }
-
-function escapeXml(value: string) { return value.replace(/[<>&'\"]/g, character => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' }[character] ?? character)); }
-
 export default function App() { return <ReactFlowProvider><AppInner /></ReactFlowProvider>; }

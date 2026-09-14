@@ -9,7 +9,8 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>LitWeave</AssemblyName>
     <RootNamespace>LitWeave</RootNamespace>
-    <Version>0.1.0</Version>
+    <ApplicationIcon>Assets\litweave.ico</ApplicationIcon>
+    <Version>0.2.1-beta.1</Version>
     <Authors>Frank Lai</Authors>
     <Description>Visual Literature Mapping for Zotero</Description>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -23,6 +24,10 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4191.47" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\litweave.ico" />
   </ItemGroup>
 
   <ItemGroup>

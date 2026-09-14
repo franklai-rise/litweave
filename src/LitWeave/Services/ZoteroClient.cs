@@ -17,6 +17,8 @@ public sealed class ZoteroClient : IZoteroReadClient, IDisposable
 {
     private readonly HttpClient _http;
     private const int PageSize = 100;
+    private const int MaxPageAttempts = 3;
+    private const int MaxStatusAttempts = 3;
 
     public ZoteroClient()
     {
@@ -27,60 +29,98 @@ public sealed class ZoteroClient : IZoteroReadClient, IDisposable
         };
         _http.DefaultRequestHeaders.TryAddWithoutValidation("Zotero-API-Version", "3");
         _http.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
-        _http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "LitWeave/0.1.0 (local desktop app)");
+        _http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "LitWeave/0.2.0 (local desktop app)");
     }
 
     public async Task<ZoteroStatus> GetStatusAsync(CancellationToken cancellationToken = default)
     {
         var checkedAt = DateTimeOffset.UtcNow;
-        try
+        for (var attempt = 0; attempt < MaxStatusAttempts; attempt++)
         {
-            using var response = await _http.GetAsync("", HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-            var apiVersion = response.Headers.TryGetValues("Zotero-API-Version", out var values)
-                ? values.FirstOrDefault() : "3";
-            if (!response.IsSuccessStatusCode)
+            try
             {
+                using var response = await _http.GetAsync("", HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+                var apiVersion = response.Headers.TryGetValues("Zotero-API-Version", out var values)
+                    ? values.FirstOrDefault() : "3";
+                var transient = response.StatusCode == HttpStatusCode.RequestTimeout
+                    || response.StatusCode == HttpStatusCode.TooManyRequests
+                    || (int)response.StatusCode >= 500;
+                if (transient && attempt < MaxStatusAttempts - 1)
+                {
+                    var delay = response.Headers.RetryAfter?.Delta ?? TimeSpan.FromMilliseconds(180 * Math.Pow(2, attempt));
+                    await Task.Delay(delay, cancellationToken);
+                    continue;
+                }
+                if (!response.IsSuccessStatusCode)
+                {
+                    var message = response.StatusCode switch
+                    {
+                        HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => "Zotero's local API denied the request. Enable the local API in Zotero's Advanced settings.",
+                        HttpStatusCode.NotFound => "Zotero's local API endpoint was not found. Make sure Zotero is running.",
+                        HttpStatusCode.TooManyRequests => "Zotero's local API is busy. Please wait a moment and try again.",
+                        _ when (int)response.StatusCode >= 500 => "Zotero's local API is temporarily unavailable. Please try again.",
+                        _ => $"Zotero local API returned {(int)response.StatusCode} ({response.ReasonPhrase})."
+                    };
+                    return new ZoteroStatus
+                    {
+                        IsRunning = true,
+                        ApiEnabled = false,
+                        ApiVersion = apiVersion,
+                        Message = message,
+                        CheckedAt = checkedAt
+                    };
+                }
+
                 return new ZoteroStatus
                 {
                     IsRunning = true,
-                    ApiEnabled = false,
+                    ApiEnabled = true,
                     ApiVersion = apiVersion,
-                    Message = $"Zotero local API returned {(int)response.StatusCode} ({response.ReasonPhrase}).",
+                    ZoteroVersion = response.Headers.TryGetValues("X-Zotero-Version", out var versions)
+                        ? versions.FirstOrDefault() : null,
+                    Message = "Zotero local API is ready.",
                     CheckedAt = checkedAt
                 };
             }
+            catch (HttpRequestException) when (!cancellationToken.IsCancellationRequested)
+            {
+                if (attempt < MaxStatusAttempts - 1)
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(180 * Math.Pow(2, attempt)), cancellationToken);
+                    continue;
+                }
+                return new ZoteroStatus
+                {
+                    IsRunning = false,
+                    ApiEnabled = false,
+                    Message = "Zotero is not running or its local API is not reachable.",
+                    CheckedAt = checkedAt
+                };
+            }
+            catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                if (attempt < MaxStatusAttempts - 1)
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(180 * Math.Pow(2, attempt)), cancellationToken);
+                    continue;
+                }
+                return new ZoteroStatus
+                {
+                    IsRunning = false,
+                    ApiEnabled = false,
+                    Message = "Timed out while checking the Zotero local API.",
+                    CheckedAt = checkedAt
+                };
+            }
+        }
 
-            return new ZoteroStatus
-            {
-                IsRunning = true,
-                ApiEnabled = true,
-                ApiVersion = apiVersion,
-                ZoteroVersion = response.Headers.TryGetValues("X-Zotero-Version", out var versions)
-                    ? versions.FirstOrDefault() : null,
-                Message = "Zotero local API is ready.",
-                CheckedAt = checkedAt
-            };
-        }
-        catch (HttpRequestException)
+        return new ZoteroStatus
         {
-            return new ZoteroStatus
-            {
-                IsRunning = false,
-                ApiEnabled = false,
-                Message = "Zotero is not running or its local API is not reachable.",
-                CheckedAt = checkedAt
-            };
-        }
-        catch (TaskCanceledException)
-        {
-            return new ZoteroStatus
-            {
-                IsRunning = false,
-                ApiEnabled = false,
-                Message = "Timed out while checking the Zotero local API.",
-                CheckedAt = checkedAt
-            };
-        }
+            IsRunning = false,
+            ApiEnabled = false,
+            Message = "Zotero is not running or its local API is not reachable.",
+            CheckedAt = checkedAt
+        };
     }
 
     public async Task<RefreshResult> RefreshAsync(ZoteroSnapshot? previous, CancellationToken cancellationToken = default)
@@ -149,15 +189,45 @@ public sealed class ZoteroClient : IZoteroReadClient, IDisposable
 
     private async Task<List<JsonElement>> GetJsonArrayAsync(string path, CancellationToken cancellationToken)
     {
-        using var response = await _http.GetAsync(path, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        if (response.StatusCode == HttpStatusCode.NotFound)
-            throw new ZoteroUnavailableException("Zotero's local API endpoint was not found.");
-        response.EnsureSuccessStatusCode();
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-        if (document.RootElement.ValueKind != JsonValueKind.Array)
-            throw new JsonException("Zotero API returned a non-array page.");
-        return document.RootElement.EnumerateArray().Select(element => element.Clone()).ToList();
+        for (var attempt = 0; attempt < MaxPageAttempts; attempt++)
+        {
+            try
+            {
+                using var response = await _http.GetAsync(path, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+                if (response.StatusCode == HttpStatusCode.NotFound)
+                    throw new ZoteroUnavailableException("Zotero's local API endpoint was not found.");
+                if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                    throw new ZoteroUnavailableException("Zotero's local API denied the request. Enable the local API in Zotero's Advanced settings.");
+
+                var transient = response.StatusCode == HttpStatusCode.RequestTimeout
+                    || response.StatusCode == HttpStatusCode.TooManyRequests
+                    || (int)response.StatusCode >= 500;
+                if (transient && attempt < MaxPageAttempts - 1)
+                {
+                    var delay = response.Headers.RetryAfter?.Delta ?? TimeSpan.FromMilliseconds(220 * Math.Pow(2, attempt));
+                    await Task.Delay(delay, cancellationToken);
+                    continue;
+                }
+                if (!response.IsSuccessStatusCode)
+                    throw new ZoteroUnavailableException($"Zotero local API returned {(int)response.StatusCode} ({response.ReasonPhrase}).");
+
+                await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+                using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+                if (document.RootElement.ValueKind != JsonValueKind.Array)
+                    throw new JsonException("Zotero API returned a non-array page.");
+                return document.RootElement.EnumerateArray().Select(element => element.Clone()).ToList();
+            }
+            catch (HttpRequestException) when (attempt < MaxPageAttempts - 1 && !cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(220 * Math.Pow(2, attempt)), cancellationToken);
+            }
+            catch (TaskCanceledException) when (attempt < MaxPageAttempts - 1 && !cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(220 * Math.Pow(2, attempt)), cancellationToken);
+            }
+        }
+
+        throw new ZoteroUnavailableException("Zotero's local API could not be read after several attempts.");
     }
 
     private static ZoteroCollection? ParseCollection(JsonElement element)
@@ -234,6 +304,7 @@ public sealed class ZoteroClient : IZoteroReadClient, IDisposable
         var extra = StringProperty(data, "extra");
         var storedCreator = creators.FirstOrDefault(c => c.CreatorType.Contains("correspond", StringComparison.OrdinalIgnoreCase))?.DisplayName;
         var storedExtra = ExtractCorrespondingAuthor(extra);
+        var storedAffiliation = ExtractFirstAffiliation(extra);
         var date = StringProperty(data, "date");
         var itemAttachments = attachments.ToList();
         if (IsAttachment(raw.ItemType) && !itemAttachments.Any(a => a.Key == raw.Key))
@@ -258,6 +329,7 @@ public sealed class ZoteroClient : IZoteroReadClient, IDisposable
             Url = StringProperty(data, "url"),
             AbstractNote = StringProperty(data, "abstractNote"),
             CorrespondingAuthor = storedCreator ?? storedExtra,
+            FirstAffiliation = storedAffiliation,
             Creators = creators,
             CollectionKeys = collections,
             Tags = tags,
@@ -317,6 +389,17 @@ public sealed class ZoteroClient : IZoteroReadClient, IDisposable
     {
         if (string.IsNullOrWhiteSpace(extra)) return null;
         var match = System.Text.RegularExpressions.Regex.Match(extra, "(?im)^\\s*Corresponding\\s+Author\\s*:\\s*(.+?)\\s*$");
+        return match.Success ? match.Groups[1].Value.Trim() : null;
+    }
+
+    private static string? ExtractFirstAffiliation(string? extra)
+    {
+        if (string.IsNullOrWhiteSpace(extra)) return null;
+        // Zotero has no canonical affiliation field. Only accept an explicitly
+        // authored Extra line; never infer institutions from author order.
+        var match = System.Text.RegularExpressions.Regex.Match(
+            extra,
+            "(?im)^\\s*(?:First\\s+(?:Affiliation|Institution)|Affiliation)\\s*:\\s*(.+?)\\s*$");
         return match.Success ? match.Groups[1].Value.Trim() : null;
     }
 

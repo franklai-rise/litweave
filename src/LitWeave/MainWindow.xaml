@@ -5,8 +5,8 @@
         Title="LitWeave — Visual Literature Mapping for Zotero"
         Width="1440" Height="900" MinWidth="1040" MinHeight="680"
         WindowStartupLocation="CenterScreen"
-        Background="#0C101A">
+        Background="#F8F9FC">
   <Grid>
-    <wpf:WebView2 x:Name="LitWeaveView" DefaultBackgroundColor="#0C101A" />
+        <wpf:WebView2 x:Name="LitWeaveView" DefaultBackgroundColor="#F8F9FC" />
   </Grid>
 </Window>
