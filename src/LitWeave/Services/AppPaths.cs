@@ -2,8 +2,18 @@ namespace LitWeave.Services;
 
 public static class AppPaths
 {
-    public static string RootDirectory => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LitWeave");
+    public static string RootDirectory
+    {
+        get
+        {
+            // Used only for a separately launched recovery copy. Normal installs
+            // keep using %LOCALAPPDATA%\\LitWeave and never move user data.
+            var explicitRoot = Environment.GetEnvironmentVariable("LITWEAVE_DATA_ROOT");
+            return string.IsNullOrWhiteSpace(explicitRoot)
+                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LitWeave")
+                : Path.GetFullPath(explicitRoot);
+        }
+    }
 
     public static string DatabasePath => Path.Combine(RootDirectory, "litweave.db");
     public static string ImagesDirectory => Path.Combine(RootDirectory, "images");
