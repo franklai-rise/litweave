@@ -71,6 +71,31 @@ test('opens an edge context menu and removes only the selected relation', async 
   await expect(page.getByText('关联已从此白板移除。可使用撤销恢复。')).toBeVisible();
 });
 
+test('selects an edge for properties and supports keyboard delete with undo', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: /刷新 Zotero/ }).click();
+  const source = await addPaper(page, 'Physics-informed structural analysis');
+  const target = await addPaper(page, 'A review of explainable mechanics');
+  await source.locator('.node-relation-button').click();
+  await target.click();
+  const edge = page.locator('.react-flow__edge');
+  await edge.locator('.react-flow__edge-interaction').click();
+  await expect(page.locator('.properties-panel')).toBeVisible();
+  await page.keyboard.press('Delete');
+  await expect(page.locator('.react-flow__edge')).toHaveCount(0);
+  await page.keyboard.press('Control+Z');
+  await expect(page.locator('.react-flow__edge')).toHaveCount(1);
+});
+
+test('opens whiteboard management views and keeps a protected board undeletable', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: '我的白板' }).click();
+  await expect(page.locator('.board-manager')).toBeVisible();
+  await expect(page.getByRole('button', { name: '使用中' })).toBeVisible();
+  await page.getByRole('button', { name: '回收站' }).click();
+  await expect(page.locator('.board-manager')).toContainText('回收站');
+});
+
 test('creates an edge by dragging a connection point', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: /刷新 Zotero/ }).click();

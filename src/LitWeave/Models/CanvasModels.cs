@@ -76,7 +76,26 @@ public sealed class BoardSummary
     public string Id { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public bool IsLegacy { get; set; }
+    public bool IsPinned { get; set; }
+    public bool IsProtected { get; set; }
+    public DateTimeOffset? ArchivedAt { get; set; }
+    public DateTimeOffset? TrashedAt { get; set; }
+    public int NodeCount { get; set; }
+    public int EdgeCount { get; set; }
+    public string? ThumbnailImageId { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
+}
+
+public sealed class BackupSummary
+{
+    public string Id { get; set; } = string.Empty;
+    public string Path { get; set; } = string.Empty;
+    public string Kind { get; set; } = "manual";
+    public DateTimeOffset CreatedAt { get; set; }
+    public int BoardCount { get; set; }
+    public int ImageCount { get; set; }
+    public bool IsHealthy { get; set; }
+    public string? HealthMessage { get; set; }
 }
 
 public sealed class CanvasTextNode

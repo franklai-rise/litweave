@@ -243,4 +243,66 @@ public sealed class ModelTests
             directory.Delete(true);
         }
     }
+
+    [Fact]
+    public void BoardManagementSoftDeletesRestoresAndProtectsWithoutRemovingContent()
+    {
+        var directory = Directory.CreateTempSubdirectory("litweave-management-test-");
+        var database = Path.Combine(directory.FullName, "boards.db");
+        try
+        {
+            using var repository = new LitWeaveRepository(database);
+            repository.SaveCanvas(new CanvasDocument { Id = "personal:legacy-cache", RootCollectionKey = "legacy-cache" });
+            var protectedBoard = repository.CreateBoard("Operator Learning");
+            Assert.DoesNotContain(repository.ListBoards("all"), board => board.Id == "personal:legacy-cache");
+            Assert.Contains(repository.ListBoards("active"), board => board.Id == protectedBoard.Id && board.IsProtected);
+            Assert.Throws<InvalidOperationException>(() => repository.DeleteBoard(protectedBoard.Id));
+            repository.SetBoardProtected(protectedBoard.Id, false);
+            repository.DeleteBoard(protectedBoard.Id);
+            Assert.DoesNotContain(repository.ListBoards("active"), board => board.Id == protectedBoard.Id);
+            Assert.Contains(repository.ListBoards("trash"), board => board.Id == protectedBoard.Id);
+            Assert.NotNull(repository.LoadBoard(protectedBoard.Id));
+            repository.RestoreBoard(protectedBoard.Id);
+            repository.ArchiveBoard(protectedBoard.Id, true);
+            Assert.Contains(repository.ListBoards("archived"), board => board.Id == protectedBoard.Id);
+            repository.ArchiveBoard(protectedBoard.Id, false);
+            Assert.Contains(repository.ListBoards("active"), board => board.Id == protectedBoard.Id);
+            Assert.Equal("1", repository.GetSetting("data-dirty"));
+        }
+        finally
+        {
+            directory.Delete(true);
+        }
+    }
+
+    [Fact]
+    public void BackupContainsCommittedDatabaseAndImagesAndCanBeRestored()
+    {
+        var directory = Directory.CreateTempSubdirectory("litweave-backup-test-");
+        try
+        {
+            var database = Path.Combine(directory.FullName, "boards.db");
+            var restoreRoot = Path.Combine(directory.FullName, "restored");
+            using var repository = new LitWeaveRepository(database);
+            var board = repository.CreateBoard("Backup board");
+            const string png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9WlE4L0AAAAASUVORK5CYII=";
+            var imageId = repository.SaveImage(png);
+            board.Nodes.Add(new CanvasNode { Id = "image:backup", Kind = "image", ImageId = imageId });
+            repository.SaveCanvas(board);
+            var backup = repository.CreateBackup();
+            Assert.True(backup.IsHealthy);
+            Assert.True(File.Exists(Path.Combine(backup.Path, "litweave.db")));
+            Assert.True(File.Exists(Path.Combine(backup.Path, "images", imageId)));
+            Assert.Equal(backup.Path, repository.VerifyBackup(backup.Path).Path);
+            repository.RestoreBackupToNewRoot(backup.Path, restoreRoot);
+            Assert.Throws<InvalidOperationException>(() => repository.RestoreBackupToNewRoot(backup.Path, directory.FullName));
+            using var restored = new LitWeaveRepository(Path.Combine(restoreRoot, "litweave.db"));
+            Assert.NotNull(restored.LoadBoard(board.Id));
+            Assert.StartsWith("data:image/png;base64,", restored.GetImageDataUrl(imageId));
+        }
+        finally
+        {
+            directory.Delete(true);
+        }
+    }
 }

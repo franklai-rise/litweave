@@ -8,6 +8,13 @@ LitWeave has three deliberately separate layers:
 3. A local SQLite repository stores both a normalized Zotero snapshot and
    LitWeave-only canvas documents.
 
+Whiteboard lifecycle metadata is kept in a separate `board_metadata` table so
+pinning, deletion protection, archive state and recoverable trash cannot be
+overwritten by an older canvas save. `personal:` records remain legacy cache
+records and are excluded from the visible board list. SQLite-native backups
+include committed WAL data, images and a checksum manifest; restore always
+writes to a new data directory.
+
 The browser surface never talks directly to Zotero. The native
 `IZoteroReadClient` sends API v3 requests, follows pagination, normalizes
 records and computes a SHA-256 snapshot hash. `RefreshDiff` classifies new,
@@ -23,7 +30,8 @@ does not contain an SDK, API key or network call.
 ## Native bridge messages
 
 `GetAppState`, `RefreshZotero`, `LoadCanvas`, `SaveCanvas`, `OpenZoteroItem`,
-`OpenZoteroPdf` and `SaveCanvasExport` are the only messages in v0.1. Every
+`OpenZoteroPdf`, board-management actions, backup/recovery actions and
+`SaveCanvasExport` are the native messages used by the current app. Every
 request receives a JSON response with `ok`, `requestId`, `payload` and an
 optional `error` object. Bridge failures are displayed in the UI rather than
 silently discarded.

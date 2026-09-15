@@ -103,12 +103,17 @@ public partial class MainWindow : Window
                 var recoveredSources = 0;
                 try { recoveredSources = _repository.EnsureExistingBoardSources(); }
                 catch (Exception ex) { LogDiagnostic($"Initial source export failed: {ex.Message}"); }
+                BackupSummary? automaticBackup = null;
+                try { automaticBackup = _repository.MaybeCreateAutomaticBackup(true); }
+                catch (Exception ex) { LogDiagnostic($"Automatic backup failed: {ex.Message}"); }
                 LogDiagnostic($"Zotero status: running={status.IsRunning}, api={status.ApiEnabled}, message={status.Message}");
                 return new
                 {
                     app = new { name = "LitWeave", subtitle = "Visual Literature Mapping for Zotero", version = "0.2.1-beta.1" },
                     storagePath = AppPaths.DatabasePath,
                     workspacePath = _repository.GetWorkspaceDirectory(),
+                    backupPath = AppPaths.BackupsDirectory,
+                    automaticBackup,
                     recoveredSources,
                     snapshot = _repository.LoadSnapshot(),
                     lastRefresh = _repository.LoadLastRefresh(),
@@ -137,7 +142,10 @@ public partial class MainWindow : Window
                 return new { savedAt = document.UpdatedAt };
             }
             case "ListBoards":
-                return new { boards = _repository.ListBoards() };
+            {
+                var filter = ReadString(payload, "filter") ?? "all";
+                return new { boards = _repository.ListBoards(filter) };
+            }
             case "CreateBoard":
             {
                 var name = ReadString(payload, "name");
@@ -163,8 +171,51 @@ public partial class MainWindow : Window
             {
                 var boardId = ReadString(payload, "boardId") ?? throw new InvalidOperationException("Missing board identifier.");
                 _repository.DeleteBoard(boardId);
-                return new { deleted = true };
+                return new { deleted = true, trashed = true };
             }
+            case "RestoreBoard":
+            {
+                var boardId = ReadString(payload, "boardId") ?? throw new InvalidOperationException("Missing board identifier.");
+                _repository.RestoreBoard(boardId);
+                return new { restored = true };
+            }
+            case "ArchiveBoard":
+            {
+                var boardId = ReadString(payload, "boardId") ?? throw new InvalidOperationException("Missing board identifier.");
+                _repository.ArchiveBoard(boardId, ReadBoolean(payload, "archived"));
+                return new { archived = ReadBoolean(payload, "archived") };
+            }
+            case "SetBoardProtected":
+            {
+                var boardId = ReadString(payload, "boardId") ?? throw new InvalidOperationException("Missing board identifier.");
+                var value = ReadBoolean(payload, "protected");
+                _repository.SetBoardProtected(boardId, value);
+                return new { isProtected = value };
+            }
+            case "SetBoardPinned":
+            {
+                var boardId = ReadString(payload, "boardId") ?? throw new InvalidOperationException("Missing board identifier.");
+                var value = ReadBoolean(payload, "pinned");
+                _repository.SetBoardPinned(boardId, value);
+                return new { isPinned = value };
+            }
+            case "ListBackups":
+                return new { backups = _repository.ListBackups() };
+            case "CreateBackup":
+                return new { backup = _repository.CreateBackup(ReadString(payload, "kind") ?? "manual") };
+            case "VerifyBackup":
+            {
+                var path = ReadString(payload, "path") ?? throw new InvalidOperationException("Missing backup path.");
+                return new { backup = _repository.VerifyBackup(path) };
+            }
+            case "RestoreBackup":
+            {
+                var path = ReadString(payload, "path") ?? throw new InvalidOperationException("Missing backup path.");
+                var destination = ReadString(payload, "destinationRoot") ?? throw new InvalidOperationException("Missing recovery destination.");
+                return new { path = _repository.RestoreBackupToNewRoot(path, destination) };
+            }
+            case "GetAppInfo":
+                return new { version = "0.2.1-beta.1", build = typeof(MainWindow).Assembly.ManifestModule.ModuleVersionId.ToString("N"), dataPath = AppPaths.RootDirectory, databasePath = AppPaths.DatabasePath, backupPath = AppPaths.BackupsDirectory, workspacePath = _repository.GetWorkspaceDirectory() };
             case "ImportBoardPackage":
                 return ImportBoardPackage();
             case "GetBoardSession":

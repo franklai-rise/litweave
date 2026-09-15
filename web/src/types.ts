@@ -37,7 +37,12 @@ export interface CanvasDocument {
   nextNodeNumber?: number;
   showAllDetails?: boolean;
 }
-export interface BoardSummary { id: string; name: string; isLegacy?: boolean; updatedAt: string; }
+export interface BoardSummary {
+  id: string; name: string; isLegacy?: boolean; isPinned?: boolean; isProtected?: boolean;
+  archivedAt?: string | null; trashedAt?: string | null; nodeCount?: number; edgeCount?: number;
+  thumbnailImageId?: string | null; updatedAt: string;
+}
+export interface BackupSummary { id: string; path: string; kind: string; createdAt: string; boardCount: number; imageCount: number; isHealthy: boolean; healthMessage?: string | null; }
 export type NodeData = {
   record: CanvasNodeRecord; item?: ZoteroItem | null; relationSource?: boolean; suppressHover?: boolean;
   showAllDetails?: boolean; connecting?: boolean;

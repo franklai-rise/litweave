@@ -1,5 +1,7 @@
 # LitWeave v0.2.1-beta.1
 
+> Source follow-up: the current `main` branch also contains whiteboard protection, recoverable trash, independent database-save status, backup verification/recovery, and edge property/delete/undo improvements. The existing public binary release remains unchanged.
+
 ## Preview / 测试版
 
 This is a pre-release for Windows 10/11 x64 and Zotero 9.x personal libraries. It does not replace the v0.1.0 stable release. Back up `%LOCALAPPDATA%\\LitWeave` before upgrading. The installer is unsigned; verify the SHA-256 asset before installation and follow Windows security guidance.
@@ -13,7 +15,7 @@ This is a pre-release for Windows 10/11 x64 and Zotero 9.x personal libraries. I
 - Paper, image, text, and group nodes with local-only labelled relations.
 - Eight edge-near connection points, relation-button fallback, duplicate-paper feedback, custom title sizes, hover metadata, and PDF/item actions in Zotero.
 - Export to PDF, PNG, SVG, JSON, and portable `.litweave`; the portable source includes referenced metadata snapshots and images and imports as a new board.
-- Local-only autosave state, explicit Ctrl+S feedback, and source-package write errors that prevent tab switching or closing the active board.
+- Local-only autosave state, explicit Ctrl+S feedback, and source-package write errors reported separately from a successful database save.
 
 ## Fixed / 修复
 

@@ -1,4 +1,6 @@
 using System.Windows;
+using System.Security.Cryptography;
+using System.Text;
 using LitWeave.Services;
 
 namespace LitWeave;
@@ -8,6 +10,8 @@ public partial class App : Application
     internal LitWeaveRepository Repository { get; private set; } = null!;
     internal ZoteroClient ZoteroClient { get; private set; } = null!;
     internal ZoteroLauncher ZoteroLauncher { get; } = new();
+    private Mutex? _dataMutex;
+    private bool _ownsDataMutex;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -33,6 +37,17 @@ public partial class App : Application
             }
         }
 
+        var rootToken = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(AppPaths.RootDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).ToLowerInvariant())))[..24];
+        _dataMutex = new Mutex(true, $"Local\\LitWeave-{rootToken}", out _ownsDataMutex);
+        if (!_ownsDataMutex)
+        {
+            MessageBox.Show("这个 LitWeave 数据目录已经被另一个实例打开。请先关闭已有窗口，或使用不同的 --data-root。", "LitWeave 已在运行", MessageBoxButton.OK, MessageBoxImage.Information);
+            _dataMutex.Dispose();
+            _dataMutex = null;
+            Shutdown();
+            return;
+        }
+
         var integrityError = LitWeaveRepository.GetIntegrityError(AppPaths.DatabasePath);
         if (!string.IsNullOrWhiteSpace(integrityError))
         {
@@ -56,6 +71,11 @@ public partial class App : Application
     {
         ZoteroClient?.Dispose();
         Repository?.Dispose();
+        if (_ownsDataMutex)
+        {
+            try { _dataMutex?.ReleaseMutex(); } catch (ApplicationException) { }
+            _dataMutex?.Dispose();
+        }
         base.OnExit(e);
     }
 }

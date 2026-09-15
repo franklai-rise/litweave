@@ -2,6 +2,14 @@
 
 All notable changes are documented here.
 
+## Unreleased — Whiteboard protection and reliability
+
+- Added independent whiteboard metadata for pinning, deletion protection, archive and recoverable trash; `Operator Learning` is protected by default.
+- Added SQLite-consistent manual/automatic backup verification, restore-to-new-directory support, and a recovery-center surface.
+- Separated successful database saves from source-package export failures and added single-writer protection per data directory.
+- Added edge selection properties, formal edge context events, enlarged edge hit areas, keyboard delete/undo/redo, and reduced-motion UI feedback.
+- Added searchable board management with edit timestamps, batch trash actions, and protected-board selection guards.
+
 ## v0.2.1-beta.1 — Preview
 
 - Introduced the multi-tab research-whiteboard workflow.
